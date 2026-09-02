@@ -1,0 +1,17 @@
+[package]
+name = "rust_book"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.49", features = ["rt-multi-thread", "io-util", "io-std", "net", "time", "fs", "macros", "sync"] }
+bookbinder = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+zip = { version = "0.5", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+
+[[bin]]
+name = "rust_book"
+path = "src/main.rs"

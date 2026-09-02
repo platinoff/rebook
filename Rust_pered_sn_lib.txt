@@ -1,0 +1,205 @@
+RUST ПЕРЕД СНОЙ
+Electronic book for learning Rust in a relaxing, sleep-friendly format
+Author: Artem Platinov
+Edition: 1, 2026
+Format: EPUB 3.2, AZW3 (Kindle), PDF
+
+==================================================
+BOOK STRUCTURE: 14 CHAPTERS
+==================================================
+
+Total reading time: ~30 minutes (2 minutes per chapter)
+Designed: To be read one chapter before sleep to improve Rust skills
+Style: Poetic, calm, progressive learning
+
+==================================================
+CHAPTER 1: "Вступление / Introduction"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Why learn Rust? The peace of mind that comes from memory-safe code.
+Content: Brief introduction to the book's purpose - learning Rust in small doses before sleep. Setting the intention: each chapter plants a seed of knowledge that grows over time.
+Poetic element: "Like watching stars appear one by one, we learn Rust one concept at a time."
+
+==================================================
+CHAPTER 2: "Основы / Basics"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Variables, types, and the calm of predictable code.
+Content: Integers, floats, booleans, characters, and strings. How Rust declares variables with `let` and the immutability default.
+Poetic element: "Let bindings flow like breath in, out - immutable by default, peaceful and sure."
+
+==================================================
+CHAPTER 3: "Владение / Ownership"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Rust's greatest gift - memory safety without garbage collector.
+Content: Ownership rules, moves and copies, the borrow checker as a gentle guard, not a harsh judge.
+Poetic element: "One owner at a time, the dance of references - no chaos, no garbage, just order."
+
+==================================================
+CHAPTER 4: "Обработка ошибок / Error Handling"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Results and Options - the calm way to handle failure.
+Content: `Result<T, E>` and `Option<T>`, the `?` operator, early returns vs. nesting. How error handling leads to cleaner code.
+Poetic element: "Errors are not crashes - they are `Result`s waiting to be unwrapped with grace."
+
+==================================================
+CHAPTER 5: "Асинхронность / Async"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Non-blocking operations, the way of the future.
+Content: `async`/`await`, Tokio runtime, futures, avoiding callback hell. How async lets many tasks coexist peacefully.
+Poetic element: "await not as waiting, but as yielding - the runtime tends the garden while we rest."
+
+==================================================
+CHAPTER 6: "Сопоставление с образцом / Pattern Matching"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: The power of `match` - seeing structure in chaos.
+Content: `match` expressions, exhaustive checking, `@` patterns, range patterns, and the joy of total coverage.
+Poetic element: "Match like a meditation - every branch accounted for, every case at peace."
+
+==================================================
+CHAPTER 7: "Обобщения и трейты / Generics and Traits"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Polymorphism without the runtime overhead.
+Content: Generics in functions and structs, trait definitions and implementations, default methods, the power of abstraction.
+Poetic element: "Traits define the contract, implementations the harmony - many types, one interface, serene."
+
+==================================================
+CHAPTER 8: "Конкурентность / Concurrency"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Fearless parallelism - threads and channels.
+Content: `std::thread`, message passing with channels (`mpsc`), shared state and `Sync`/`Send`, avoiding data races by design.
+Poetic element: "Threads that speak through channels - messages carried like whispered secrets, safely passed."
+
+==================================================
+CHAPTER 9: "Макросы / Macros"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Meta-programming as a calm tool, not chaos.
+Content: Macro basics with `macro_rules!`, repetition, pattern matching in macros, when to use macros vs. functions. The beauty of abstraction.
+Poetic element: "Macros write the dance, code performs it - once defined, forever reusable, peaceful."
+
+==================================================
+CHAPTER 10: "Cargo и крейты / Cargo and Crates"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: The Rust ecosystem - calm abundance.
+Content: `Cargo` commands, crates.io, dependencies, semantic versioning, creating your first crate. The balance of independence and community.
+Poetic element: "One crate, one purpose - the ecosystem grows like a calm forest, each tree independent, each root connected."
+
+==================================================
+CHAPTER 11: "Тестирование / Testing"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Fearless development - tests as documentation and safety net.
+Content: `#[test]`, `assert!`, `assert_eq!`, `should_panic`, integration tests, the calm of running `cargo test` before sleep.
+Poetic element: "Tests are not doubts - they are the gentle confirmation that our code rests in safety."
+
+==================================================
+CHAPTER 12: "Веб-разработка с Axum / Web with Axum"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Building calm APIs with the Tokio ecosystem.
+Content: Axum router, typed extractors, `IntoResponse`, middleware with Tower, creating a simple HTTP server. The most popular Rust web framework (2024-2026).
+Poetic element: "Axum routes like garden paths - each endpoint finds its place, guided by the runtime's steady hand."
+
+==================================================
+CHAPTER 13: "Создание книги на Rust / Book Creation"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Using `bookbinder`, `papyrust`, and `boko` to create this very book.
+Content: Generating EPUB from markdown, converting to AZW3/KFX for Kindle, embedding fonts (EB Garamond), building a static binary. How this book was itself created with Rust tools.
+Poetic element: "From markdown to EPUB, from Rust to reader - the chain is calm, the output beautiful."
+
+==================================================
+CHAPTER 14: "Заключение / Conclusion"
+--------------------------------------------------
+Time: 2 min | Pages: 2
+Theme: Your Rust journey continues, one chapter at a time.
+Content: Recap of key concepts, resources for continued learning, the philosophy of incremental learning, sleeping on new knowledge.
+Poetic element: "Close this book, open Rust - the sleep has settled the new knowledge. Until next time."
+
+==================================================
+BOOK PRODUCTION SPECIFICATIONS
+==================================================
+
+Target Formats:
+- EPUB 3.2 (readable on Apple Books, Google Play, most e-readers)
+- AZW3/KFX (Kindle format, preferred as of 2026)
+- PDF (for printing/desktop reading)
+
+Standardization:
+- Rust 2024 edition (stable since Feb 2025, MSRV 1.85.0)
+- EPUB 3.2 specification
+- Kindle Previewer compatible
+- EB Garamond font for PDF (bundled static binary)
+
+Creation Tools:
+- `papyrust init` for scaffold
+- `bookbinder` + `bookbinder_epub` for EPUB generation
+- `boko` for EPUB → KFX/AZW3 conversion
+- `kindling-cli` for Kindle Direct Publishing output
+
+Author: Artem Platinov
+Edition: 1, 2026
+Copyright: MIT License (or specify appropriate license)
+
+==================================================
+LOCAL RULE: HOW TO WRITE THIS BOOK
+==================================================
+
+1. CHAPTER STRUCTURE: Each chapter MUST be 2-3 minutes read maximum. 
+   - One clear concept per chapter
+   - No more than 3 code examples per chapter
+   - Poetic preamble and postscript for each chapter
+
+2. RESEARCH SOURCES (ONLY OFFICIAL):
+   - Rust documentation: doc.rust-lang.org
+   - Rust edition guide: edition-guide.rust-lang.org
+   - Axum book: docs.axum.rs
+   - bookbinder docs: docs.rs/bookbinder
+   - papyrust: irvj.github.io/papyrust
+   - Kindle specs: kindling-cli docs
+
+3. EPUB AMAZON COMPLIANCE:
+   - Output EPUB 3.2 format
+   - Convert to AZW3 via `boko convert book.epub book.azw3`
+   - Cover image: minimum 600x600px, sRGB
+   - No HTML files > 30MB (Kindle limit)
+   - Embed EB Garamond font for PDF consistency
+   - Use `--no-embed-source` only if Kindle Previewer compatibility is not needed
+
+4. RULES FOR NEURAL NETWORK/AUTHOR:
+   - Never exceed 3 code examples per chapter
+   - Always include poetic element (1-2 lines) in each chapter
+   - Keep each chapter under 500 words of main content
+   - Research must use only: Rust docs, edition guide, Axum docs, bookbinder docs, papyrust docs
+   - Output format: EPUB 3.2 → AZW3 via boko (Kindle standard)
+   - Version: Rust 2024 edition, MSRV 1.85.0 minimum
+
+5. READING ORDER:
+   - One chapter per night before sleep
+   - Allow 15-20 minutes reflection time after each chapter
+   - New concepts build progressively - do not skip chapters
+
+==================================================
+EDITION NOTES
+==================================================
+
+Rust 2024 Edition features used:
+- `Future` and `IntoFuture` in prelude
+- `IntoIterator for Box<[T]>`
+- Edition-aware formatter style
+- `rust-version` in Cargo.toml considered by resolver
+
+This book targets Rust 1.85.0+ (stable, 2024 edition).
+All code examples compile with `cargo check --edition 2024`.
+
+==================================================
+END OF STRUCTURE
+==================================================

@@ -1,0 +1,83 @@
+================================================================
+LOCAL RULE: HOW NEURAL NETWORK/AUTHOR SHOULD WRITE "RUST ПЕРЕД СНОЙ"
+================================================================
+
+1. CHAPTER STRUCTURE MANDATE:
+   - EXACTLY 14 chapters
+   - Each chapter: 30 minutes read (30*14 min total = 420 min total)
+   - Book in Ukrainian languages, searching English official for needs
+   - One clear concept per chapter ONLY
+   - Maximum 3 code examples per chapter
+   - MUST include poetic element (1-2 lines) in each chapter
+   - Chapters must build progressively - NO skipping allowed
+
+2. RESEARCH SOURCES (OFFICIAL ONLY - NO EXCEPTIONS):
+   - Rust Documentation: doc.rust-lang.org (stable version, English)
+   - Rust Edition Guide: edition-guide.rust-lang.org (English)
+   - The Rust Programming Language (Steve Klabnik, Carol Nichols, English)
+   - Axum Book: docs.axum.rs (English)
+   - bookbinder docs: docs.rs/bookbinder (English)
+   - papyrust documentation: irvj.github.io/papyrust (English)
+   - Kindle Publishing Guidelines: kindling-cli docs (English)
+   - Ukraine official docs for Ukrainian localization (if needed)
+   - C Documentation: docs.c.org (English, for comparison/interop reference)
+
+3. EPUB & AMAZON KINDLE COMPLIANCE:
+   - Output format: EPUB 3.2 (standard for modern e-readers)
+   - Convert to AZW3/KFX for Kindle via: `boko convert book.epub book.azw3`
+   - Cover image requirements: minimum 600x600px, sRGB color space
+   - NO HTML files exceeding 30MB (Kindle limit since Aug 2022)
+   - Embed EB Garamond font in PDF outputs for typographic consistency
+   - Use kindling-cli for KDP: `kindling-cli build book.epub --no-embed-source`
+   - Default output: AZW3/KF8 format (MOBI deprecated Aug 2022)
+   - For dictionaries: dual-format MOBI7+KF8 via `--legacy-mobi` flag
+
+4. RUST EDITION & TOOLCHAIN RULES:
+   - Rust 2024 edition (MSRV 1.85.0, stable since Feb 2025)
+   - All code examples MUST compile with `cargo check --edition 2024`
+   - Use `rustup default stable-x86_64-pc-windows-gnu`
+   - Cargo.toml must include `edition = "2024"` 
+   - Dependencies: axum 0.8+, tokio 1.49+, bookbinder latest
+
+5. POETIC REQUIREMENTS (NON-NEGOTIABLE):
+   - Each chapter MUST begin or end with a poetic line (1-2 lines)
+   - Theme: calm, sleep, stars, night, flow, growth, patience
+   - NO dark, aggressive, or stressful themes
+   - Poetry must relate to the chapter's technical concept
+   - Example: "await not as waiting, but as yielding" (Chapter 5)
+
+6. WORD COUNT LIMITS:
+   - Main content per chapter: MAX 8000 words (maximum per chapter)
+   - Poetic element: 1-2 lines only (supplementary, not counted in main content)
+   - Code examples: MAX 3 per chapter, each <= 20 lines
+   - Total book: ~112000 words across 14 chapters (8000*14 maximum)
+
+7. OUTPUT FORMAT SPECIFICATIONS:
+   - EPUB 3.2 valid against epubcheck
+   - AZW3 via boko converter (Rust 1.85+)
+   - PDF via bookbinder + LaTeX (or papyrust PDF build)
+   - Single static binary preferred for distribution (papyrust-cli)
+   - ISBN: optional, but if included: format 978-0-1234567-8-9
+
+8. VERSION CONTROL & UPDATES:
+   - Edition: 1, Year: 2026 (as specified)
+   - Version numbering: MAJOR.MINOR.PATCH (bookbinder style: 0.222.2 inspired)
+   - Updates: only via new edition (Edition 2, 2027, etc.)
+   - Git history: one commit per edition release
+
+9. PROHIBITED PRACTICES:
+   - Do NOT use Python, Java, or any non-Rust tools for core content
+   - Do NOT exceed 3 code examples per chapter
+   - Do NOT research from non-official sources (no random blogs, tutorials unless from doc.rust-lang.org)
+   - Do NOT output MOBI format as primary (AZW3/KFX is standard 2026)
+   - Do NOT skip chapter progression - concepts build on each other
+
+10. READING ORDER MANDATE:
+    - One chapter per reading session (before sleep)
+    - Minimum 15 minutes reflection recommended after each chapter
+    - Chapters MUST be read in order 1→14
+    - New concepts build on previous - do NOT skip
+
+================================================================
+END OF LOCAL RULES
+================================================================

@@ -1,0 +1,143 @@
+---
+description: Correct EPUB 3.2 + Amazon KDP pipeline for rebook (rust_book). The EPUB builder is implemented; this is the working canon and reference for the next abrakadabra drain.
+globs: "**/*"
+alwaysApply: true
+---
+
+# How to produce a correct KDP book (EPUB 3.2 baseline)
+
+`rebook` (`rust_book`, `S:/rust/rebook`) builds "Rust перед сном" — a 14-chapter,
+Ukrainian-language book sold on **Amazon KDP**.
+
+> **Status (band 1 done):** `src/epub.rs` is now a **real EPUB 3.2 builder** — a true ZIP
+> with the fixed skeleton (`mimetype` stored + first, `META-INF/container.xml`,
+> `OEBPS/content.opf`, `OEBPS/nav.xhtml`, one XHTML page per chapter) driven by
+> `book.json`. The old placeholder (`create_minimal_epub` raw splice + `H`/`O`
+> markers) and the fake AZW3/KDP markers are removed; `convert`/`kdp` now return a
+> clear "upload the EPUB to KDP" error instead of writing marker files.
+
+---
+
+## 1. Amazon KDP accepts EPUB directly — no AZW3 needed
+
+The **simplest correct path** in 2026: upload a **valid EPUB 3.2** to KDP. KDP converts it
+server-side to the Kindle formats (KFX) automatically.
+
+- Do **not** hand-build AZW3/KFX/MOBI locally (deprecated, niche, easy to get wrong).
+- Upload target = **EPUB 3.2** (with `META-INF/container.xml` + OPF + `nav.xhtml`).
+- Amazon limits: each XHTML file **< 30 MB**; original cover must be ≥ 1000 px longest side
+  (JPG/PNG); metadata in the OPF drives the KDP kindle-title prefill.
+
+## 2. A valid EPUB 3.2 is a ZIP with a fixed skeleton
+
+An EPUB file **must** be a ZIP archive in this exact layout (first entry = `mimetype`,
+**stored uncompressed**, no BOM):
+
+```
+book.epub  (ZIP)
+├── mimetype                     # application/epub+xml  (STORED, first entry, no BOM)
+├── META-INF/
+│   └── container.xml            # points to the OPF (full-path: e.g. OEBPS/content.opf)
+└── OEBPS/
+    ├── content.opf              # <package> with <manifest> + <spine> + <metadata>
+    ├── nav.xhtml                # EPUB 3 navigation document (linked from the OPF)
+    └── chapter-01.xhtml …       # real XHTML content pages (one per chapter)
+```
+
+Required, non-negotiable:
+
+1. **ZIP container** — a real ZIP (crate `zip`), not a raw byte splice.
+2. **`mimetype`** first entry, **compression STORED (0)**, exact string `application/epub+xml`,
+   no leading BOM, no trailing form-feed.
+3. **`META-INF/container.xml`**:
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+     <rootfiles>
+       <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+     </rootfiles>
+   </container>
+   ```
+4. **`OEBPS/content.opf`** — full OPF with `<manifest>` (list every file incl. nav + chapters +
+   cover) and `<spine>` (reading order):
+   ```xml
+   <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id" xml:lang="uk">
+     <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+       <dc:identifier id="book-id">urn:uuid:…</dc:identifier>
+       <dc:title>Rust перед сном</dc:title>
+       <dc:creator>Artem Platinov</dc:creator>
+       <dc:language>uk</dc:language>
+       <meta property="dcterms:modified">2026-09-01T00:00:00Z</meta>
+     </metadata>
+     <manifest>
+       <item id="nav"   href="nav.xhtml"          media-type="application/xhtml+xml" properties="nav"/>
+       <item id="ch01"  href="chapter-01.xhtml"   media-type="application/xhtml+xml"/>
+       …
+     </manifest>
+     <spine>
+       <itemref idref="nav"/>
+       <itemref idref="ch01"/>
+       …
+     </spine>
+   </package>
+   ```
+5. **`nav.xhtml`** — EPUB 3 cross-reference: an HTML list with `<a href>` to each chapter
+   (XHTML serialization, `<epub:type="toc">`).
+6. **Chapter pages** — well-formed XHTML (UTF-8, `<html xmlns=…>`, `<head><meta charset/>` +
+   `<title>`, content in `<body>`). Escape `< > &`. No bare ASCII in attributes.
+7. **Cover** — optional OPF item `<meta name="cover" content="cover-image"/>` + image item;
+   cover should be ≥ 1000 px.
+
+## 3. How "Rust перед сном" maps into the skeleton
+
+| Data in repo | Where it goes in the EPUB |
+|---|---|
+| `book.json` `title` / `author` / `language` | `content.opf` `<metadata>` |
+| `book.json` `chapters[]` (14) | one `OEBPS/chapter-NN.xhtml` each + `<spine>` order + `<nav>` links |
+| each chapter `poetic` | rendered inside that chapter XHTML (styled blockquote) |
+| `cover_image` (optional `EpubConfig`) | `META-INF`/`OEBPS` image + OPF `<meta name="cover">` |
+
+## 4. Rust implementation (done in band 1)
+
+The builder in `src/epub.rs` follows this canon:
+
+- `zip` crate (`zip = { version = "0.5", default-features = false, features = ["deflate"] }`).
+  `mimetype` is written **first** with `FileOptions::default().compression_method(Stored)`,
+  every other entry `Deflated`.
+- `src/epub.rs` builds `META-INF/container.xml` (`full-path="OEBPS/content.opf"`),
+  `OEBPS/content.opf` (metadata + manifest + spine for all chapters), `OEBPS/nav.xhtml`
+  (toc links), and one `OEBPS/chapter-NN.xhtml` per chapter.
+- Metadata (`title`, `creator`, `language`, `dcterms:modified`) comes from `book.json`
+  via `rust_book::load_book` (`src/lib.rs::Book`). The `dc:identifier` is a deterministic
+  v5-style UUID derived from title/author/language (`book_uuid`).
+- Chapter content is XML-escaped (`esc`) then backtick spans are wrapped in `<code>`.
+- `main.rs::build_epub` loads `book.json` → `generate_epub(config, &book)` → writes
+  `build/rust_book.epub`.
+- `convert_azw3` / `kdp_build` were placeholder-free stubs that wrote text markers; they
+  now return a clear **"KDP accepts the EPUB directly — upload it"** error. There is no
+  local AZW3 step.
+
+## 5. Acceptance / verify (band 1 — passing)
+
+```
+cd /s/rust/rebook
+cargo fmt --all -- --check   # clean
+cargo clippy --all-targets   # 0 warnings on rebook code
+cargo test                   # 6 unit tests pass (esc, render_body, XML builders, uuid)
+cargo run -- build-epub      # writes build/rust_book.epub
+# Validate the produced file is a real EPUB:
+#   entry 0 = mimetype (STORED, exactly "application/epub+xml")
+#   then META-INF/container.xml, OEBPS/content.opf, OEBPS/nav.xhtml,
+#   OEBPS/chapter-01.xhtml … chapter-14.xhtml
+```
+
+Smoke test on the produced file (Windows: `powershell` + `System.IO.Compression.ZipFile`,
+or `unzip -l` on Linux): `mimetype` stored and first, `container.xml` present at
+`META-INF/container.xml`, all chapter files referenced from the OPF present.
+
+## 6. One commit discipline
+
+This is a **product** doc (lives in `S:/rust/rebook`), not GSV. Canon link from the GSV
+registry: [`docs/gsv/PRODUCTS.md`](../../../docs/gsv/PRODUCTS.md) row `rebook`.
+Next session in rebook: `абракадабра` → S0 disk → audit `book.json` content quality →
+any open gaps from the roadmap → one commit.
