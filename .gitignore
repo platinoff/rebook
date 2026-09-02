@@ -5,5 +5,4 @@
 *.azw3
 *.kfx
 *.mobi
-bookbinder_output.txt
-help.txt
+*.txt

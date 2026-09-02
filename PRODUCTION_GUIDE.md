@@ -6,10 +6,8 @@ Electronic book "Rust перед сном" (Rust before sleep) by Artem Platinov
 
 ## Current State
 All source files created in `S:\rust\rebook`:
-- `Rust_pered_sn_book.md` - Full markdown book (231 lines)
-- `Rust_pered_sn_chapters.txt` - Chapter content (229 lines)
-- `Rust_pered_sn_rules.txt` - Local creation rules (81 lines)
-- `Rust_pered_sn_lib.txt` - Research summary (205 lines)
+- `book.json` - Full book metadata + 14 chapters (consumed by `cargo run -- build-epub`)
+- `rust_pered_sn_book.md` - Full markdown book (231 lines)
 
 ## How to Actually Produce the Book
 
@@ -120,7 +118,7 @@ The 14 chapters from the research map to papyrust chapter files:
 ## Production Checklist
 - [ ] Install: `cargo install bookbinder boko kindling-cli`
 - [ ] Scaffold: `papyrust init my-rust-book`
-- [ ] Copy chapters from `Rust_pered_sn_chapters.txt` / `rust_pered_sn_book.md`
+- [ ] Copy chapters from `book.json` (14 chapters) into the scaffold
 - [ ] Edit `book.toml` with metadata (title, author, ISBN)
 - [ ] Place cover image: `cover.jpg` (600x600px, sRGB)
 - [ ] Build EPUB: `papyrust build epub`
