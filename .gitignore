@@ -2,6 +2,11 @@
 /build
 /data
 
+# The live book project (author's content) stays local — never push it.
+# The committed repo is the tool; samples/ is the MIT example.
+/book.json
+/chapters/
+
 # Book outputs — never track compiled/exported book artifacts
 *.epub
 *.azw3

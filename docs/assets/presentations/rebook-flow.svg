@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 260" width="1280" height="260" role="img">
+  <title>rebook pipeline</title>
+  <desc>book.json + chapters/ -> build-epub -> check -> view. SMIL, no JavaScript.</desc>
+  <defs>
+    <linearGradient id="pipelow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#101828"/>
+      <stop offset="50%" stop-color="#0c1420"/>
+      <stop offset="100%" stop-color="#101828"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="260" fill="url(#pipelow)"/>
+  <g transform="translate(64 130)">
+    <line x1="0" y1="0" x2="1152" y2="0" stroke="#22d3ee" stroke-opacity="0.25" stroke-width="2"/>
+    <line x1="0" y1="0" x2="1152" y2="0" stroke="#22d3ee" stroke-dasharray="6 10" stroke-width="2">
+      <animate attributeName="stroke-dashoffset" from="0" to="-32" dur="1.6s" repeatCount="indefinite"/>
+    </line>
+  </g>
+  <g>
+    <rect x="64" y="64" width="220" height="76" rx="12" fill="#121826" stroke="#7eb8ff" stroke-opacity="0.5"/>
+    <text x="174" y="96" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="16" fill="#7eb8ff">book.json + chapters/</text>
+    <text x="174" y="120" text-anchor="middle" font-family="ui-sans-serif, Segoe UI, sans-serif" font-size="13" fill="#8b98aa">your markdown source</text>
+  </g>
+  <g>
+    <rect x="360" y="64" width="180" height="76" rx="12" fill="#121826" stroke="#ff9ec0" stroke-opacity="0.5"/>
+    <text x="450" y="96" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="16" fill="#ff9ec0">build-epub</text>
+    <text x="450" y="120" text-anchor="middle" font-family="ui-sans-serif, Segoe UI, sans-serif" font-size="13" fill="#8b98aa">strict EPUB 3.2</text>
+  </g>
+  <g>
+    <rect x="620" y="64" width="170" height="76" rx="12" fill="#121826" stroke="#22d3ee" stroke-opacity="0.5"/>
+    <text x="705" y="96" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="16" fill="#22d3ee">check</text>
+    <text x="705" y="120" text-anchor="middle" font-family="ui-sans-serif, Segoe UI, sans-serif" font-size="13" fill="#8b98aa">KDP rules, green/red</text>
+  </g>
+  <g>
+    <rect x="876" y="64" width="160" height="76" rx="12" fill="#121826" stroke="#c4a5ff" stroke-opacity="0.5"/>
+    <text x="956" y="96" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="16" fill="#c4a5ff">view :8090</text>
+    <text x="956" y="120" text-anchor="middle" font-family="ui-sans-serif, Segoe UI, sans-serif" font-size="13" fill="#8b98aa">local previewer</text>
+  </g>
+  <text x="1150" y="214" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" fill="#5b6b82">Rust 100% | no JS builds</text>
+</svg>

@@ -1,0 +1,13 @@
+{
+  "title": "Sample Book — Making an EPUB",
+  "author": "rebook authors",
+  "edition": 1,
+  "year": 2026,
+  "format": "EPUB 3.2",
+  "language": "en",
+  "chapters": [
+    { "number": 1, "title": "A Calm Start", "file": "chapters/01.md" },
+    { "number": 2, "title": "Markdown, Rendered", "file": "chapters/02.md" },
+    { "number": 3, "title": "The KDP Check", "file": "chapters/03.md" }
+  ]
+}

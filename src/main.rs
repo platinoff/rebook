@@ -58,13 +58,51 @@ fn main() {
     }
 }
 
+/// A resolved book project: where `book.json` lives and where the EPUB goes.
+///
+/// If a `book.json` exists in the working directory we treat it as the user's
+/// own book project. Otherwise we fall back to the bundled MIT sample so the
+/// tool runs out of the box on a fresh clone.
+#[derive(Clone)]
+struct BookProject {
+    base: std::path::PathBuf,
+    json: std::path::PathBuf,
+    epub: std::path::PathBuf,
+}
+
+impl BookProject {
+    fn resolve() -> BookProject {
+        if Path::new("book.json").exists() {
+            BookProject {
+                base: std::path::PathBuf::from("."),
+                json: std::path::PathBuf::from("book.json"),
+                epub: std::path::PathBuf::from("build/rust_book.epub"),
+            }
+        } else {
+            BookProject {
+                base: std::path::PathBuf::from("samples"),
+                json: std::path::PathBuf::from("samples/book.json"),
+                epub: std::path::PathBuf::from("samples/rust_book.epub"),
+            }
+        }
+    }
+
+    fn label(&self, extra_base: &str) -> std::path::PathBuf {
+        if self.base == std::path::Path::new(".") {
+            std::path::PathBuf::from(extra_base)
+        } else {
+            self.base.join(extra_base)
+        }
+    }
+}
+
 fn print_help() {
-    println!("Rust перед сном - Book Creation Tool");
-    println!("=====================================");
+    println!("rebook - local EPUB 3.2 book tool");
+    println!("==================================");
     println!("Available commands:");
-    println!("  build-epub - Build a valid EPUB 3.2 from book.json + chapters/");
-    println!("  md         - Regenerate rust_pered_sn_book.md from the chapters");
-    println!("  check      - Validate build/rust_book.epub (Rust-only, zip crate)");
+    println!("  build-epub - Build a valid EPUB 3.2 (book.json + chapters/, or bundled sample)");
+    println!("  md         - Render the whole book to a single markdown file");
+    println!("  check      - Validate the built EPUB (Rust-only, zip crate)");
     println!("  view       - Local KDP EPUB previewer server (http://127.0.0.1:8090/)");
     println!("  convert    - (deprecated) KDP accepts EPUB directly");
     println!("  kdp        - (deprecated) KDP accepts EPUB directly");
@@ -72,16 +110,17 @@ fn print_help() {
 
 fn build_epub() -> Result<(), String> {
     println!("Building EPUB 3.2 format...");
+    let proj = BookProject::resolve();
 
-    let book = rust_book::load_book("book.json")?;
-    let chapters = rust_book::load_chapters(".", &book)?;
+    let book = rust_book::load_book(&proj.json)?;
+    let chapters = rust_book::load_chapters(&proj.base, &book)?;
     let mut total = 0usize;
     for ch in &chapters {
         total += ch.word_count();
         println!("  розділ {:02}: {} слів", ch.number, ch.word_count());
     }
     println!(
-        "Loaded book: {} ({}. {} розділів, {} слів)",
+        "Loaded book: {} ({} · {} розділів, {} слів)",
         book.title,
         book.author,
         chapters.len(),
@@ -91,30 +130,33 @@ fn build_epub() -> Result<(), String> {
     let config = rust_book::epub::EpubConfig {
         title: book.title.clone(),
         author: book.author.clone(),
-        output_path: "build/rust_book.epub".to_string(),
+        output_path: proj.epub.to_string_lossy().into_owned(),
         cover_image: None,
         language: book.language.clone(),
     };
 
     rust_book::epub::generate_epub(&config, &book, &chapters)?;
 
-    let epub_path = Path::new("build/rust_book.epub");
-    if epub_path.exists() {
-        println!("✓ EPUB generated successfully: {}", epub_path.display());
-        println!(
-            "   Location: {}",
-            std::env::current_dir().unwrap_or_default().display()
-        );
+    if proj.epub.exists() {
+        println!("✓ EPUB generated successfully: {}", proj.epub.display());
     }
 
     Ok(())
 }
 
-/// Regenerate `rust_pered_sn_book.md` from `book.json` + `chapters/*.md`
-/// so the human-readable book stays in sync with the EPUB source.
+/// Regenerate a single aggregated markdown export from `book.json` +
+/// `chapters/*.md` so the human-readable book stays in sync with the EPUB.
 fn render_book_md() -> Result<(), String> {
-    let book = rust_book::load_book("book.json")?;
-    let chapters = rust_book::load_chapters(".", &book)?;
+    let proj = BookProject::resolve();
+    let book = rust_book::load_book(&proj.json)?;
+    let chapters = rust_book::load_chapters(&proj.base, &book)?;
+
+    let stem = proj
+        .json
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "book".to_string());
+    let out_name = proj.label(&format!("{stem}.md"));
 
     let mut out = String::new();
     out.push_str(&format!("# {}\n\n", book.title));
@@ -128,16 +170,18 @@ fn render_book_md() -> Result<(), String> {
         out.push('\n');
     }
 
-    std::fs::write("rust_pered_sn_book.md", out)
-        .map_err(|e| format!("Failed to write rust_pered_sn_book.md: {}", e))?;
+    std::fs::write(&out_name, out)
+        .map_err(|e| format!("Failed to write {}: {}", out_name.display(), e))?;
+    println!("Written: {}", out_name.display());
     Ok(())
 }
 
 /// Rust-only EPUB validation.
 fn check() -> Result<String, String> {
-    let book = rust_book::load_book("book.json")?;
-    let chapters = rust_book::load_chapters(".", &book)?;
-    let listing = rust_book::epub::check_epub("build/rust_book.epub", &book.chapters)?;
+    let proj = BookProject::resolve();
+    let book = rust_book::load_book(&proj.json)?;
+    let chapters = rust_book::load_chapters(&proj.base, &book)?;
+    let listing = rust_book::epub::check_epub(&proj.epub.to_string_lossy(), &book.chapters)?;
     let total: usize = chapters.iter().map(|c| c.word_count()).sum();
     Ok(format!(
         "{}\nChapter words: {} ({} chapters)\n",
@@ -174,12 +218,23 @@ fn kdp_build(_azw3_path: &str) -> Result<(), String> {
 fn view(port: &str) -> Result<(), String> {
     let addr = format!("127.0.0.1:{port}");
 
+    // Out-of-the-box: if the resolved project has no EPUB yet, build it first
+    // (this makes the bundled sample instantly viewable on a fresh clone).
+    let proj = BookProject::resolve();
+    if !proj.epub.exists() {
+        println!("No EPUB found — building {}", proj.epub.display());
+        build_epub()?;
+    }
+
     // Discover every *.epub on disk (and adjacent book.json / auto-parse).
     let root = std::path::Path::new(".");
     let books = rust_book::viewer::discover_books(root)?;
     if books.is_empty() {
         println!("Не знайдено жодного *.epub у поточному каталозі.");
-        println!("Покладіть EPUB (напр. build/rust_book.epub) і запустіть заново.");
+        println!(
+            "Покладіть EPUB (напр. {}/*.epub) і запустіть заново.",
+            proj.epub.parent().unwrap().display()
+        );
         return Ok(());
     }
 
