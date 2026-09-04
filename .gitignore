@@ -1,8 +1,14 @@
 /target
 /build
 /data
+
+# Book outputs — never track compiled/exported book artifacts
 *.epub
 *.azw3
 *.kfx
 *.mobi
 *.txt
+# Generated aggregate markdown export (currently rust_pered_sn_book.md)
+*_book.md
+_book.md
+book_drafts/*.md

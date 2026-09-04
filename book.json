@@ -1,100 +1,24 @@
 {
-  "title": "Rustеред снов",
+  "title": "Rust перед сном",
   "author": "Artem Platinov",
   "edition": 1,
   "year": 2026,
   "format": "EPUB 3.2",
+  "language": "uk",
   "chapters": [
-    {
-      "number": 1,
-      "title": "Вступление",
-      "content": "Почему Rust перед сном? Потому что память, которая освобождается сама, приносит спокойствие ума. Каждая глава — как звезда на небе: появляется по одной, и gradualmente небо знаний заполняется.",
-      "poetic": "Как наблюдаем звезды, один за другим — так мы учим Rust, шаг за шагом, и душа находит покой в типе и порядке."
-    },
-    {
-      "number": 2,
-      "title": "Основы",
-      "content": "В Rust `let` — не просто назначение, это обещание. По умолчанию неизменяемость — безопасность по умолчанию.",
-      "poetic": "Пусть `let` вдохновляет как вдох перед плаванием: immutable по умолчанию, спокойно и уверенно."
-    },
-    {
-      "number": 3,
-      "title": "Владение",
-      "content": "Владение — greatest gift Rust дарует. Одна владельца в каждый момент. Перемещение (move) — передача ответственности.",
-      "poetic": "Один владелец, спокойный ум. Передаем ответственность — код нашёлся."
-    },
-    {
-      "number": 4,
-      "title": "Обработка ошибок",
-      "content": "Result<T, E> и Option<T>. Ошибки — не краши, а Result, ждущий распаковки с грацией.",
-      "poetic": "Ошибки — это Result, ждущий своего момента. Не в панике, а в грации — распаковываем с душой."
-    },
-    {
-      "number": 5,
-      "title": "Асинхронность",
-      "content": "`async`/`await` — не ожидание в слепую, а yield. Рuntime творит магию пока мы отдыхаем.",
-      "poetic": "await не как задержка, а как yielding. Рuntime садёт каждый цветок своя очередь, мы отдыхаем, пока код работает."
-    },
-    {
-      "number": 6,
-      "title": "Сопоставление с образцом",
-      "content": "match — это медитация над структурой. Каждая ветка accounted for. Every case at peace.",
-      "poetic": "match — медитация структуры. Каждая ветка — на своём месте. Ни одно исключение — мир в балансе."
-    },
-    {
-      "number": 7,
-      "title": "Обобщения и трейты",
-      "content": "Генералитет без runtime overhead. Trait определяет контракт, implementations — гармонию.",
-      "poetic": "Тraits — контракт, implementations — гармония. Многие типы, один интерфейс — мир в упорядоченном балансе."
-    },
-    {
-      "number": 8,
-      "title": "Конкурентность",
-      "content": "Fearless parallelism. std::thread — создание потока. Каналы (mpsc) — сообщения, как хрупкие вазы, передаваемые от одного к другому.",
-      "poetic": "Потоки, разговаривающие через каналы. Сообщения — как шепот, переданный надежно. Ни одной race condition — мир в безопасности."
-    },
-    {
-      "number": 9,
-      "title": "Макросы",
-      "content": "Macros — meta-programming, но спокойный. `macro_rules!` — как шаблон, который разворачивается на месте.",
-      "poetic": "Макросы пишут танец, код исполняет его. Один раз написано — бесконечно повторяем. Спокойная абстракция — без duplications."
-    },
-    {
-      "number": 10,
-      "title": "Cargo и крейты",
-      "content": "Cargo — менеджер пакетов, который просто работает. Крейты из crates.io — как книги в библиотеке, каждый своё дело.",
-      "poetic": "One crate, one purpose — спокойный рост. Экосистема — как лес: каждый-tree independente, а корни вместе держат систему."
-    },
-    {
-      "number": 11,
-      "title": "Тестирование",
-      "content": "`#[test]` — метка, под которую подArrange компилятор. `assert!` и `assert_eq!` — проверки истинности.",
-      "poetic": "Тесты — не сомнения, а подтверждение. Запусти `cargo test`, идущий перед сном, и усни с уверенностью: код в безопасности."
-    },
-    {
-      "number": 12,
-      "title": "Веб-разработка с Axum",
-      "content": "Axum — самый популярный веб-фреймворк Rust 2024–2026. Роутер, типичные extractors, `IntoResponse`. Middleware через Tower — tracing, авторизация, сжатие.",
-      "poetic": "Axum — роуты, как пути в саду. Каждый endpoint — на месте. Runtime тих в стороне, guiding спокойно."
-    },
-    {
-      "number": 13,
-      "title": "Создание книги на Rust",
-      "content": "Эта самая книга создана с помощью Rust tools: `bookbinder` → EPUB, `boko` → AZW3/KFX для Kindle.",
-      "poetic": "От markdown к EPUB, от Rust к читателю. Цепочка спокойная, результат прекрасный."
-    },
-    {
-      "number": 14,
-      "title": "Заключение",
-      "content": "Мы прошли 14 глав. Recap: ownership, error handling, async, matching, generics, concurrency, macros, Cargo, testing, Axum, book creation.",
-      "poetic": "Закрываем книгу, открываем Rust. Сон уладил новые знания. До встречи в следующей главе."
-    }
-  ],
-  "metadata": {
-    "rust_edition": "2024",
-    "msrv": "1.85.0",
-    "output_format": "EPUB 3.2",
-    "cover_image": "600x600px sRGB",
-    "font": "EB Garamond for PDF"
-  }
+    { "number": 1, "title": "Вступлення", "file": "chapters/01.md" },
+    { "number": 2, "title": "Основи мови", "file": "chapters/02.md" },
+    { "number": 3, "title": "Власність і позики", "file": "chapters/03.md" },
+    { "number": 4, "title": "Час життя і посилання", "file": "chapters/04.md" },
+    { "number": 5, "title": "Обробка помилок", "file": "chapters/05.md" },
+    { "number": 6, "title": "Асинхронність", "file": "chapters/06.md" },
+    { "number": 7, "title": "Сопоставлення зі зразком", "file": "chapters/07.md" },
+    { "number": 8, "title": "Обобщення і трейти", "file": "chapters/08.md" },
+    { "number": 9, "title": "Колекції та ітератори", "file": "chapters/09.md" },
+    { "number": 10, "title": "Конкурентність", "file": "chapters/10.md" },
+    { "number": 11, "title": "Макроси", "file": "chapters/11.md" },
+    { "number": 12, "title": "Cargo, крейти, екосистема", "file": "chapters/12.md" },
+    { "number": 13, "title": "Тестування", "file": "chapters/13.md" },
+    { "number": 14, "title": "Висновок", "file": "chapters/14.md" }
+  ]
 }

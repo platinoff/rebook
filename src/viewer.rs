@@ -1,0 +1,1309 @@
+//! EPUB viewer with KDP EPUB 3.2 compliance preview.
+//!
+//! Reads a built EPUB (`build/rust_book.epub`) in memory and serves it over a
+//! local `127.0.0.1` tokio TCP socket so the book can be previewed the way
+//! Amazon KDP would see it. Also exposes a KDP-acceptance check (`/check`).
+//!
+//! Rust-only, no new dependencies, works fully offline.
+use std::io::Read;
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+
+use crate::{Book, ChapterMeta};
+
+/// Default bind address for the local preview server.
+pub const DEFAULT_ADDR: &str = "127.0.0.1:8090";
+
+/// An EPUB unpacked into memory, keyed by archive entry path.
+#[derive(Debug, Clone)]
+pub struct Epub {
+    entries: Vec<(String, Vec<u8>)>,
+}
+
+impl Epub {
+    /// Read every entry of an EPUB (zip) into memory.
+    pub fn from_path(path: &str) -> Result<Epub, String> {
+        let file = std::fs::File::open(path)
+            .map_err(|e| format!("EPUB file not found: {} ({})", path, e))?;
+        let mut archive =
+            zip::ZipArchive::new(file).map_err(|e| format!("Not a valid ZIP: {}", e))?;
+        let mut entries = Vec::with_capacity(archive.len());
+        for i in 0..archive.len() {
+            let mut f = archive
+                .by_index(i)
+                .map_err(|e| format!("Cannot read entry {i}: {e}"))?;
+            let mut bytes = Vec::new();
+            f.read_to_end(&mut bytes)
+                .map_err(|e| format!("Cannot read {}: {}", f.name(), e))?;
+            entries.push((f.name().to_string(), bytes));
+        }
+        Ok(Epub { entries })
+    }
+
+    /// Number of stored entries.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// True iff the archive has no entries.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Look up the bytes of one entry (exact path match).
+    pub fn get(&self, name: &str) -> Option<Vec<u8>> {
+        self.entries
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, b)| b.clone())
+    }
+
+    /// UTF-8 text of one entry, if present and valid.
+    pub fn text(&self, name: &str) -> Option<String> {
+        self.get(name).and_then(|b| String::from_utf8(b).ok())
+    }
+
+    /// Names of all chapter pages matching `OEBPS/chapter-*.xhtml`.
+    pub fn chapter_names(&self) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .entries
+            .iter()
+            .filter(|(n, _)| n.starts_with("OEBPS/chapter-") && n.ends_with(".xhtml"))
+            .map(|(n, _)| n.clone())
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// Auto-derive a `Book` straight from the EPUB package (no `book.json`).
+    ///
+    /// Reads title / creator / language from `content.opf`, and walks the
+    /// spine (`<itemref idref="…">` → manifest `href`) to build the ordered
+    /// chapter list, taking each chapter's `<title>` from its own XHTML.
+    /// This is what lets any third-party EPUB be previewed without us writing
+    /// a `book.json` for it.
+    pub fn parse_opf_book(&self) -> Result<Book, String> {
+        let opf = self
+            .text("OEBPS/content.opf")
+            .ok_or("EPUB містить OEBPS/content.opf у недоступному форматі")?;
+        let title = text_between(&opf, "<dc:title>", "</dc:title>")
+            .unwrap_or("(без назви)")
+            .trim()
+            .to_string();
+        let author = text_between(&opf, "<dc:creator>", "</dc:creator>")
+            .unwrap_or("(невідомий автор)")
+            .trim()
+            .to_string();
+        let language = text_between(&opf, "<dc:language>", "</dc:language>")
+            .unwrap_or("uk")
+            .trim()
+            .to_string();
+
+        // idref list from the spine, in order.
+        let mut idrefs = Vec::new();
+        let mut rest = opf.as_str();
+        while let Some(i) = rest.find("<itemref") {
+            let seg = &rest[i..];
+            let end = seg.find('>').unwrap_or(seg.len());
+            let tag = &seg[..end];
+            if let Some(id) = attr_value(tag, "idref") {
+                idrefs.push(id.to_string());
+            }
+            rest = &seg[end + 1..];
+        }
+
+        // Manifest: id → href/file.
+        let mut href_by_id: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        rest = opf.as_str();
+        while let Some(i) = rest.find("<item ") {
+            let seg = &rest[i..];
+            let end = seg.find('>').unwrap_or(seg.len());
+            let tag = &seg[..end];
+            if let (Some(id), Some(href)) = (attr_value(tag, "id"), attr_value(tag, "href")) {
+                href_by_id.insert(id.to_string(), href.to_string());
+            }
+            rest = &seg[end + 1..];
+        }
+
+        // Resolve href → entry path (OEBPS/ prefix).
+        let mut chapters = Vec::new();
+        let mut num = 1u32;
+        for id in &idrefs {
+            let Some(href) = href_by_id.get(id) else {
+                continue;
+            };
+            if href.ends_with(".xhtml") {
+                let entry = if href.starts_with("OEBPS/") {
+                    href.clone()
+                } else {
+                    format!("OEBPS/{href}")
+                };
+                if let Some(doc) = self.text(&entry) {
+                    let ctitle = text_between(&doc, "<title>", "</title>")
+                        .or_else(|| text_between(&doc, "<h1>", "</h1>"))
+                        .unwrap_or(&format!("Розділ {num}"))
+                        .trim()
+                        .to_string();
+                    chapters.push(ChapterMeta {
+                        number: num,
+                        title: ctitle,
+                        file: entry,
+                    });
+                    num += 1;
+                }
+            }
+        }
+
+        if chapters.is_empty() {
+            return Err("Не знайдено жодного XHTML у spine".to_string());
+        }
+
+        Ok(Book {
+            title,
+            author,
+            edition: 1,
+            year: 0,
+            format: "EPUB 3.2".to_string(),
+            language,
+            chapters,
+        })
+    }
+}
+
+/// Value of an attribute (`name="value"`) inside an HTML/XML tag string.
+fn attr_value(tag: &str, name: &str) -> Option<String> {
+    let key = format!("{name}=\"");
+    let start = tag.find(&key)? + key.len();
+    let rel = &tag[start..];
+    let end = rel.find('"')?;
+    Some(unescape_xml(rel[..end].trim()))
+}
+
+/// The text between two literal markers (first occurrence), if any.
+fn text_between<'a>(s: &'a str, open: &str, close: &str) -> Option<&'a str> {
+    let start = s.find(open)? + open.len();
+    let end = s[start..].find(close)? + start;
+    Some(&s[start..end])
+}
+
+/// Decode the handful of XML entities we emit / commonly see in OPF titles.
+fn unescape_xml(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+}
+
+/// Individual result line of the KDP compliance check.
+#[derive(Debug, Clone)]
+pub struct KdpCheckItem {
+    pub name: String,
+    pub ok: bool,
+    pub detail: String,
+}
+
+/// Result of a KDP-compliance scan over an EPUB.
+#[derive(Debug, Clone)]
+pub struct KdpReport {
+    pub items: Vec<KdpCheckItem>,
+}
+
+impl KdpReport {
+    /// True iff every item passed.
+    pub fn passed(&self) -> bool {
+        self.items.iter().all(|i| i.ok)
+    }
+
+    /// Count of passed items.
+    pub fn passes(&self) -> usize {
+        self.items.iter().filter(|i| i.ok).count()
+    }
+}
+
+/// Run the KDP EPUB 3.2 compliance check over an opened EPUB.
+pub fn kdp_check(epub: &Epub, book: &Book) -> KdpReport {
+    let mut items = Vec::new();
+
+    // 1. mimetype must be the first entry, stored, exact content.
+    let first = epub.entries.first();
+    let mimetype_ok = match first {
+        Some((name, bytes)) => name == "mimetype" && bytes == b"application/epub+xml",
+        None => false,
+    };
+    items.push(mimetype_item(mimetype_ok));
+
+    // 2. Required entries.
+    for want in [
+        "mimetype",
+        "META-INF/container.xml",
+        "OEBPS/content.opf",
+        "OEBPS/nav.xhtml",
+        "OEBPS/styles.css",
+    ] {
+        let ok = epub.get(want).is_some();
+        items.push(KdpCheckItem {
+            name: format!("entry:{want}"),
+            ok,
+            detail: if ok {
+                "присутній".to_string()
+            } else {
+                "ПРОПУЩЕНО".to_string()
+            },
+        });
+    }
+
+    // 3. OPF metadata sanity + spine/ref-count vs chapters.
+    let chapters = epub.chapter_names();
+    let opf = epub.text("OEBPS/content.opf").unwrap_or_default();
+    for (key, needle, label) in [
+        ("opf:dc:title", "<dc:title>", "назва"),
+        ("opf:dc:creator", "<dc:creator>", "автор"),
+        ("opf:dc:language", "<dc:language>", "мова"),
+        ("opf:dc:identifier", "urn:uuid:", "uid"),
+        ("opf:dc:date", "<dc:date>", "дата"),
+        ("opf:modified", "dcterms:modified", "час редагування"),
+        ("opf:spine", "<spine", "поява <spine>"),
+    ] {
+        let ok = opf.contains(needle);
+        items.push(KdpCheckItem {
+            name: key.to_string(),
+            ok,
+            detail: if ok {
+                label.to_string()
+            } else {
+                format!("ПРОПУЩЕНО (без {needle})")
+            },
+        });
+    }
+
+    // Book chapters from JSON vs entries in the EPUB.
+    let expected = book.chapters.len();
+    let found = chapters.len();
+    items.push(KdpCheckItem {
+        name: "chapters:count".to_string(),
+        ok: expected == found,
+        detail: format!("book.json={expected}, epub={found}"),
+    });
+
+    // Each expected chapter page present.
+    for meta in &book.chapters {
+        let want = format!("OEBPS/chapter-{:02}.xhtml", meta.number);
+        let ok = epub.get(&want).is_some();
+        items.push(KdpCheckItem {
+            name: format!("chapter:{:02}", meta.number),
+            ok,
+            detail: if ok {
+                meta.title.clone()
+            } else {
+                "ПРОПУЩЕНО".to_string()
+            },
+        });
+    }
+
+    // 4. Nav has toc + chapter links.
+    let nav = epub.text("OEBPS/nav.xhtml").unwrap_or_default();
+    items.push(KdpCheckItem {
+        name: "nav:toc".to_string(),
+        ok: nav.contains("epub:type=\"toc\""),
+        detail: "epub:type=\"toc\"".to_string(),
+    });
+    items.push(KdpCheckItem {
+        name: "nav:links".to_string(),
+        ok: nav.contains("chapter-"),
+        detail: "посилання chapter-".to_string(),
+    });
+
+    // 5. KDP-forbidden constructs across all XHTML + CSS.
+    let mut forbidden_html: Vec<String> = Vec::new();
+    for (name, _) in &epub.entries {
+        if !name.ends_with(".xhtml") {
+            continue;
+        }
+        let body = String::from_utf8_lossy(&epub.get(name).unwrap_or_default()).to_string();
+        let low = body.to_ascii_lowercase();
+        for tag in [
+            "<script", "<iframe", "<video", "<audio", "<form", "onclick", "onload",
+        ] {
+            if low.contains(tag) {
+                forbidden_html.push(format!("{name}: {tag}"));
+            }
+        }
+        // raw unescaped ampersands (crude well-formedness signal)
+        if raw_ampersand(&body) {
+            forbidden_html.push(format!("{name}: сирий &"));
+        }
+        // External absolute URLs in resource-loading attributes (href/src) —
+        // these pull web resources at render time and KDP rejects them.
+        // XML namespace declarations (xmlns="http://…") are structural and fine.
+        for found in external_resource_urls(&body) {
+            forbidden_html.push(format!("{name}: зовнішня {found}"));
+        }
+    }
+    items.push(KdpCheckItem {
+        name: "xhtml:forbidden".to_string(),
+        ok: forbidden_html.is_empty(),
+        detail: if forbidden_html.is_empty() {
+            "немає заборонених конструкцій".to_string()
+        } else {
+            forbidden_html.join("; ")
+        },
+    });
+
+    let css = epub.text("OEBPS/styles.css").unwrap_or_default();
+    let css_low = css.to_ascii_lowercase();
+    let mut css_problems: Vec<String> = Vec::new();
+    if css_low.contains("@import") {
+        css_problems.push("@import".to_string());
+    }
+    if css_low.contains("url(") {
+        css_problems.push("url() у стилях".to_string());
+    }
+    items.push(KdpCheckItem {
+        name: "css:no-external".to_string(),
+        ok: css_problems.is_empty(),
+        detail: if css_problems.is_empty() {
+            "стилі без зовнішніх".to_string()
+        } else {
+            css_problems.join("; ")
+        },
+    });
+
+    KdpReport { items }
+}
+
+fn mimetype_item(ok: bool) -> KdpCheckItem {
+    KdpCheckItem {
+        name: "mimetype:first-stored".to_string(),
+        ok,
+        detail: if ok {
+            "перший запис, без стиск, application/epub+xml".to_string()
+        } else {
+            "mimetype не перший/не Stored/непривильний вміст".to_string()
+        },
+    }
+}
+
+/// True if the string has a `&` not followed by a known XML entity name.
+fn raw_ampersand(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'&' {
+            let rest = &s[i + 1..];
+            let prefix = rest
+                .split(|c: char| !c.is_ascii_alphanumeric())
+                .next()
+                .unwrap_or("");
+            if !matches!(prefix, "amp" | "lt" | "gt" | "quot" | "apos") {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Find absolute `http(s)://` URLs inside `href=""` / `src=""` attribute values.
+///
+/// Namespace declarations (`xmlns="http://…"`) are structural XML and are not
+/// external resource loads, so they are ignored here.
+fn external_resource_urls(html: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let bytes = html.as_bytes();
+    let n = bytes.len();
+    let mut i = 0;
+    while i < n {
+        // Only ASCII word characters/punct form an attribute token.
+        let start = i;
+        let mut j = i;
+        while j < n && is_attr_char(bytes[j]) {
+            j += 1;
+        }
+        let len = j - start;
+        let is_href_or_src =
+            len == 4 && (&bytes[start..j] == b"href") || len == 3 && (&bytes[start..j] == b"src");
+        i = j;
+        // Skip whitespace, expect '=' then the quoted/unquoted value.
+        while i < n && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i < n && bytes[i] == b'=' {
+            i += 1;
+            while i < n && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            let quote = if i < n && (bytes[i] == b'"' || bytes[i] == b'\'') {
+                let q = bytes[i];
+                i += 1;
+                Some(q)
+            } else {
+                None
+            };
+            let val_start = i;
+            let val_end;
+            if let Some(q) = quote {
+                while i < n && bytes[i] != q {
+                    i += 1;
+                }
+                val_end = i;
+                // step past the closing quote so the outer loop advances
+                if i < n {
+                    i += 1;
+                }
+            } else {
+                while i < n && !bytes[i].is_ascii_whitespace() {
+                    i += 1;
+                }
+                val_end = i;
+            }
+            let val = &bytes[val_start..val_end];
+            if is_href_or_src && (val.starts_with(b"http://") || val.starts_with(b"https://")) {
+                out.push(String::from_utf8_lossy(val).into_owned());
+            }
+        } else if len == 0 {
+            // no '=' and no real token: advance one byte so we never stall
+            i += 1;
+        }
+    }
+    out
+}
+
+/// True for bytes that can appear in an HTML attribute name.
+fn is_attr_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
+}
+
+/// HTTP/1.1 request as parsed from a client stream.
+struct Request {
+    method: String,
+    target: String,
+}
+
+fn parse_request_head(buf: &[u8]) -> Option<Request> {
+    let text = String::from_utf8_lossy(buf);
+    let mut lines = text.lines();
+    let line = lines.next()?;
+    let mut parts = line.split_whitespace();
+    let method = parts.next()?.to_string();
+    let target = parts.next()?.to_string();
+    Some(Request { method, target })
+}
+
+/// Render the page for a book index (`/`  or `/{id}/`).
+fn render_index(epub: &Epub, book: &Book, book_id: &str) -> String {
+    let report = kdp_check(epub, book);
+    let passed = report.passed();
+    let chapters = epub.chapter_names();
+
+    let mut rows = String::new();
+    for item in &report.items {
+        let mark = if item.ok { "&#10003;" } else { "&#10007;" };
+        let cls = if item.ok { "ok" } else { "fail" };
+        rows.push_str(&format!(
+            "    <tr class=\"{cls}\"><td>{mark}</td><td>{}</td><td>{}</td></tr>\n",
+            html_esc(&item.name),
+            html_esc(&item.detail)
+        ));
+    }
+
+    let mut toc = String::new();
+    for meta in &book.chapters {
+        let present = epub
+            .get(&format!("OEBPS/chapter-{:02}.xhtml", meta.number))
+            .is_some();
+        let link = if present {
+            format!(
+                "<a href=\"/{id}/chapter/{}\">Розділ {} — {}</a>",
+                meta.number,
+                meta.number,
+                html_esc(&meta.title),
+                id = book_id,
+            )
+        } else {
+            format!(
+                "Розділ {} — {} <em>(немає в epub)</em>",
+                meta.number,
+                html_esc(&meta.title)
+            )
+        };
+        toc.push_str(&format!("    <li>{}</li>\n", link));
+    }
+
+    let badge_out = if passed { "PASS" } else { "FAIL" };
+    let badge_cls = if passed { "pass" } else { "fail" };
+
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8"/>
+<title>{title} — EPUB просмоторщик</title>
+<link rel="stylesheet" href="/styles.css"/>
+</head>
+<body>
+<header>
+<h1>{title}</h1>
+<p class="author">Автор: {author} <span class="meta">· {lang} · EPUB 3.2</span></p>
+<a class="shelf-link" href="/books">☷ Усі книги на сервері</a>
+</header>
+
+<section class="frame book">
+<h2 class="frame-title">В книзі · {chap} розділів</h2>
+<p class="frame-note">Нижче — те, що фізично входить до файлу <em>{epub_name}</em>.</p>
+<ol class="toc">
+{toc}
+</ol>
+</section>
+
+<section class="frame site">
+<h2 class="frame-title">Окремо на сайті · не в книзі</h2>
+<p class="frame-note">Це інструменти просмоторщика — вони не потрапляють у EPUB і не є частиною книги.</p>
+<div class="kdp">
+<p class="badge {badge_cls}">{badge_out} — {passes}/{total} перевірок KDP</p>
+<table class="report">
+<thead><tr><th>#</th><th>Правило</th><th>Деталь</th></tr></thead>
+<tbody>
+{rows}
+</tbody>
+</table>
+<p class="links"><a href="/{id}/check">Повний звіт /check</a> · <a href="/{id}/chapter/1">Почати книгу</a></p>
+</div>
+</section>
+</body>
+</html>
+"#,
+        title = html_esc(&book.title),
+        author = html_esc(&book.author),
+        lang = html_esc(&book.language),
+        id = book_id,
+        epub_name = html_esc("*.epub"),
+        badge_out = badge_out,
+        badge_cls = badge_cls,
+        passes = report.passes(),
+        total = report.items.len(),
+        rows = rows,
+        chap = chapters.len(),
+        toc = toc,
+    )
+}
+
+/// Extract the inner `<body>` content of an XHTML page.
+fn extract_body(xhtml: &str) -> Option<String> {
+    let low = xhtml.to_ascii_lowercase();
+    let start = low.find("<body")?;
+    let body_open_end = xhtml[start..].find('>')? + start + 1;
+    let closing = xhtml.rfind("</body>")?;
+    Some(xhtml[body_open_end..closing].to_string())
+}
+
+/// Render a single chapter as clean KDP-acceptable XHTML.
+fn render_chapter(epub: &Epub, book: &Book, num: &str, book_id: &str) -> Option<String> {
+    // Find the matching chapter meta to reuse the exact title.
+    let meta = book.chapters.iter().find(|c| c.number.to_string() == num)?;
+    let path = format!("OEBPS/chapter-{:02}.xhtml", meta.number);
+    let raw = epub.text(&path)?;
+    let body = extract_body(&raw).unwrap_or_else(|| raw.clone());
+    Some(format!(
+        r#"<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8"/>
+<title>{num_cls} — {title_esc}</title>
+<link rel="stylesheet" href="/styles.css"/>
+</head>
+<body>
+<nav class="chapnav">
+<a href="/{id}/">← Повернутись до книги</a>
+</nav>
+{body}
+</body>
+</html>
+"#,
+        num_cls = num,
+        title_esc = html_esc(&meta.title),
+        id = book_id,
+        body = body,
+    ))
+}
+
+/// Render the shelf page listing every discovered book.
+fn render_shelf(books: &[LoadedBook]) -> String {
+    let mut cards = String::new();
+    for b in books {
+        let n = b.book.chapters.len();
+        cards.push_str(&format!(
+            "<div class=\"book-card\">\n\
+             \x20 <h3><a href=\"/{id}/\">{title}</a></h3>\n\
+             \x20 <p class=\"author\">{author} <span class=\"meta\">· {lang} · {n} розділів</span></p>\n\
+             \x20 <p class=\"meta\">{path}</p>\n\
+             \x20 <p><a class=\"btn\" href=\"/{id}/chapter/1\">Читати</a> \
+             \x20 <a class=\"btn\" href=\"/{id}/check\">KDP-перевірка</a></p>\n\
+             </div>\n",
+            id = b.id,
+            title = html_esc(&b.book.title),
+            author = html_esc(&b.book.author),
+            lang = html_esc(&b.book.language),
+            n = n,
+            path = html_esc(&b.path),
+        ));
+    }
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8"/>
+<title>Книжкова полиця — EPUB просмоторщик</title>
+<link rel="stylesheet" href="/styles.css"/>
+</head>
+<body>
+<header>
+<h1>Книжкова полиця</h1>
+<p class="author">Знайдено EPUB: <span class="meta">{count}</span></p>
+</header>
+{cards}
+</body>
+</html>
+"#,
+        count = books.len(),
+        cards = cards,
+    )
+}
+
+/// The served CSS: EPUB's styles.minified plus a little viewer chrome.
+fn viewer_css(epub: &Epub) -> String {
+    let base = epub.text("OEBPS/styles.css").unwrap_or_default();
+    let chrome = r#"
+/* viewer chrome — dark theme */
+:root{
+  --bg:#12141a; --panel:#1b1e27; --panel2:#232734;
+  --text:#e6e6e6; --muted:#9aa0ac; --accent:#7aa2f7;
+  --ok:#3fb950; --fail:#f85149; --line:#2f3542;
+}
+html,body{background:var(--bg);}
+body{font-family:Georgia,"EB Garamond",serif;line-height:1.7;margin:4% 8%;color:var(--text);}
+header h1{margin-bottom:0.1em;color:#fff;}
+.author .meta{color:var(--muted);}
+.frame{border:2px solid var(--line);border-radius:12px;padding:1.2em 1.6em;margin:1.4em 0;background:var(--panel);}
+.frame.book{border-color:var(--accent);}
+.frame-title{margin:0 0 0.2em;color:#fff;}
+.frame-note{color:var(--muted);margin:0 0 0.9em;font-size:0.95em;}
+.frame .toc{margin:0;padding-left:1.4em;}
+.frame .toc li{margin:0.35em 0;}
+.frame .toc a{color:var(--accent);text-decoration:none;}
+.frame .toc a:hover{text-decoration:underline;}
+.badge{display:inline-block;padding:0.3em 0.8em;border-radius:4px;font-weight:bold;}
+.badge.pass{background:#14261a;color:var(--ok);border:1px solid var(--ok);}
+.badge.fail{background:#2a1717;color:var(--fail);border:1px solid var(--fail);}
+table.report{border-collapse:collapse;margin:1em 0;width:100%;}
+table.report th,table.report td{border:1px solid var(--line);padding:0.4em 0.6em;text-align:left;color:var(--text);}
+table.report th{background:var(--panel2);}
+tr.ok td:first-child{color:var(--ok);}
+tr.fail td:first-child{color:var(--fail);}
+.links a{color:var(--accent);}
+.chapnav{margin-bottom:1.4em;}
+.chapnav a{color:var(--accent);text-decoration:none;}
+
+/* dark-theme overrides for the EPUB's own light styles */
+body, h1, h2, h3, h4 { color: var(--text); }
+code {
+  background: #2a2f3a;
+  border: 1px solid #383f4d;
+  color: #f0c674;
+}
+pre {
+  background: #1a1f2a;
+  border: 1px solid #383f4d;
+  color: var(--text);
+}
+pre code { background: none; border: none; color: var(--text); }
+blockquote {
+  color: #c9d1d9;
+  border-left: 3px solid var(--accent);
+}
+hr { border-top: 1px solid var(--line); }
+a { color: var(--accent); }
+
+/* shelf / book cards */
+.shelf-link{font-size:0.85em;display:inline-block;margin-top:0.3em;color:var(--muted);text-decoration:none;}
+.shelf-link:hover{color:var(--accent);}
+.book-card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:0.9em 1.2em;margin:1em 0;}
+.book-card h3{margin:0 0 0.2em;color:#fff;}
+.book-card h3 a{color:var(--accent);text-decoration:none;}
+.book-card h3 a:hover{text-decoration:underline;}
+.btn{display:inline-block;margin:0.4em 0.5em 0 0;padding:0.35em 0.9em;border:1px solid var(--accent);border-radius:5px;color:var(--accent);text-decoration:none;background:transparent;}
+.btn:hover{background:var(--accent);color:var(--bg);}
+"#;
+    format!("{base}\n{chrome}")
+}
+
+/// Render the `/check` report page.
+fn render_check(epub: &Epub, book: &Book) -> String {
+    let report = kdp_check(epub, book);
+    let passed = report.passed();
+    let mut lines = String::new();
+    lines.push_str(&format!(
+        "{{\n  \"passed\": {},\n  \"passes\": {},\n  \"total\": {},\n  \"items\": [\n",
+        passed,
+        report.passes(),
+        report.items.len()
+    ));
+    for (i, item) in report.items.iter().enumerate() {
+        let comma = if i + 1 < report.items.len() { "," } else { "" };
+        lines.push_str(&format!(
+            "    {{\"name\": \"{n}\", \"ok\": {o}, \"detail\": \"{d}\"}}{c}\n",
+            n = json_esc(&item.name),
+            o = item.ok,
+            d = json_esc(&item.detail),
+            c = comma
+        ));
+    }
+    lines.push_str("  ]\n}\n");
+    lines
+}
+
+fn html_esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn json_esc(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+}
+
+/// One EPUB discovered on disk, ready to preview. `id` is a stable URL slug.
+#[derive(Debug, Clone)]
+pub struct LoadedBook {
+    pub id: String,
+    pub path: String,
+    pub book: Book,
+    pub epub: Epub,
+}
+
+/// Scan `dir` (recursively) for `*.epub` files and load them for preview.
+///
+/// For a given EPUB we first look for a sibling/config `book.json` (in `dir`
+/// or the same folder as the epub). If none exists we auto-parse the package
+/// (OPF + spine) into a `Book`. This is the "just drop an epub and watch it"
+/// behaviour.
+pub fn discover_books(dir: &std::path::Path) -> Result<Vec<LoadedBook>, String> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let entries = std::fs::read_dir(&d).map_err(|e| format!("Немає доступу до {d:?}: {e}"))?;
+        for ent in entries.flatten() {
+            let p = ent.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            if p.extension().is_some_and(|e| e == "epub")
+                && let Ok(some) = discover_one(&p, Some(dir))
+            {
+                out.push(some);
+            }
+        }
+    }
+    out.sort_by(|a, b| a.book.title.cmp(&b.book.title));
+    Ok(out)
+}
+
+/// Load a single EPUB into a `LoadedBook`, preferring an adjacent `book.json`.
+fn discover_one(
+    path: &std::path::Path,
+    root: Option<&std::path::Path>,
+) -> Result<LoadedBook, String> {
+    let epub = Epub::from_path(&path.to_string_lossy())?;
+    let parent = path.parent();
+    // A book.json may sit next to the epub or at the scan root.
+    let mut json_paths = vec![];
+    if let Some(pp) = parent {
+        json_paths.push(pp.join("book.json"));
+    }
+    if let Some(r) = root {
+        json_paths.push(r.join("book.json"));
+    }
+
+    // Prefer the last (root) book.json for the canonical book, then parent's.
+    let mut book = None;
+    for jp in json_paths {
+        if let Ok(b) = crate::load_book(&jp) {
+            book = Some(b);
+            break;
+        }
+    }
+    let book = match book {
+        Some(b) => b,
+        None => epub.parse_opf_book()?,
+    };
+    let id = slug(&book.title);
+    Ok(LoadedBook {
+        id,
+        path: path.to_string_lossy().into_owned(),
+        book,
+        epub,
+    })
+}
+
+/// A filesystem-safe slug for a book title, used as a URL id.
+fn slug(title: &str) -> String {
+    let mut s = String::new();
+    let mut last_dash = false;
+    for c in title.chars() {
+        if c.is_ascii_alphanumeric() {
+            s.push(c.to_ascii_lowercase());
+            last_dash = false;
+        } else if matches!(c, ' ' | '-') && !last_dash {
+            s.push('-');
+            last_dash = true;
+        }
+    }
+    let s = s.trim_matches('-').to_string();
+    if s.is_empty() { "book".to_string() } else { s }
+}
+
+/// Run the local preview server until interrupted (Ctrl+C).
+pub async fn serve(books: Vec<LoadedBook>, addr: &str) -> Result<(), String> {
+    let listener = TcpListener::bind(addr)
+        .await
+        .map_err(|e| format!("Не вдалося слухати {addr}: {e}"))?;
+    println!("Просмоторщик EPUB запущено: http://{addr}/");
+    println!("Знайдено книг: {}", books.len());
+    for b in &books {
+        println!("  /{id} — {title}", id = b.id, title = b.book.title);
+    }
+    println!(
+        "KDP-перевірка: http://{addr}/{id}/check",
+        id = books.first().map(|b| b.id.clone()).unwrap_or_default()
+    );
+    println!("Зупинити — Ctrl+C.");
+
+    loop {
+        let (mut socket, _peer) = listener
+            .accept()
+            .await
+            .map_err(|e| format!("Помилка прийому: {e}"))?;
+        let books = books.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle(&mut socket, &books).await {
+                eprintln!("Помилка з'єднання: {e}");
+            }
+        });
+    }
+}
+
+/// The book selected by a request path prefix, falling back to the first.
+fn choose<'a>(books: &'a [LoadedBook], path: &'a str) -> (&'a LoadedBook, &'a str) {
+    let mut rest = path;
+    let mut book = &books[0];
+    if let Some(rest_path) = path.strip_prefix('/') {
+        let slash = rest_path.find('/');
+        let first_seg = &rest_path[..slash.unwrap_or(rest_path.len())];
+        if let Some(found) = books.iter().find(|b| b.id == first_seg) {
+            book = found;
+            rest = if let Some(sl) = slash {
+                &rest_path[sl..]
+            } else {
+                "/"
+            };
+        }
+    }
+    (book, rest)
+}
+
+/// Read one HTTP request head and respond to the routed target.
+async fn handle(socket: &mut tokio::net::TcpStream, books: &[LoadedBook]) -> Result<(), String> {
+    let mut buf = [0u8; 8192];
+    let n = socket
+        .read(&mut buf)
+        .await
+        .map_err(|e| format!("read: {e}"))?;
+    if n == 0 {
+        return Ok(());
+    }
+    let req = parse_request_head(&buf[..n]).unwrap_or(Request {
+        method: "GET".to_string(),
+        target: "/".to_string(),
+    });
+
+    // This previewer is read-only: accept only GET/HEAD.
+    if req.method != "GET" && req.method != "HEAD" {
+        let resp =
+            "HTTP/1.1 405 Method Not Allowed\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+        socket
+            .write_all(resp.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    // Path part before any query string.
+    let path = req.target.split('?').next().unwrap_or("/");
+
+    let (status, body, kind) = route(path, books);
+
+    let body_bytes = body.into_bytes();
+    let mut head = format!("HTTP/1.1 {status}\r\n");
+    head.push_str(&format!("content-type: {kind}\r\n"));
+    head.push_str(&format!("content-length: {}\r\n", body_bytes.len()));
+    head.push_str("cache-control: no-store\r\nconnection: close\r\n\r\n");
+
+    socket
+        .write_all(head.as_bytes())
+        .await
+        .map_err(|e| format!("write head: {e}"))?;
+    socket
+        .write_all(&body_bytes)
+        .await
+        .map_err(|e| format!("write body: {e}"))?;
+    Ok(())
+}
+
+/// Decide the HTTP reply for a path. Returns (status, body, mime).
+fn route(path: &str, books: &[LoadedBook]) -> (&'static str, String, &'static str) {
+    if path == "/" || path.is_empty() {
+        if books.len() == 1 {
+            let b = &books[0];
+            return (
+                "200 OK",
+                render_index(&b.epub, &b.book, &b.id),
+                "text/html; charset=utf-8",
+            );
+        }
+        return ("200 OK", render_shelf(books), "text/html; charset=utf-8");
+    }
+    if path == "/health" {
+        return ("200 OK", "ok".to_string(), "text/plain; charset=utf-8");
+    }
+    if path == "/books" || path == "/" {
+        return ("200 OK", render_shelf(books), "text/html; charset=utf-8");
+    }
+
+    // Resolve optional /{id} prefix; default to the first book.
+    let (book, rest) = choose(books, path);
+    if rest == "/" || rest.is_empty() {
+        return (
+            "200 OK",
+            render_index(&book.epub, &book.book, &book.id),
+            "text/html; charset=utf-8",
+        );
+    }
+    if rest == "/check" {
+        return (
+            "200 OK",
+            render_check(&book.epub, &book.book),
+            "application/json; charset=utf-8",
+        );
+    }
+    if rest == "/styles.css" {
+        return ("200 OK", viewer_css(&book.epub), "text/css; charset=utf-8");
+    }
+    if rest
+        .strip_prefix("/")
+        .is_some_and(|r| r.starts_with("chapter/"))
+    {
+        let num = &rest[("/chapter/").len()..];
+        return match render_chapter(&book.epub, &book.book, num, &book.id) {
+            Some(page) => ("200 OK", page, "text/html; charset=utf-8"),
+            None => (
+                "404 Not Found",
+                page_not_found(num),
+                "text/html; charset=utf-8",
+            ),
+        };
+    }
+    (
+        "404 Not Found",
+        page_not_found(path),
+        "text/html; charset=utf-8",
+    )
+}
+
+fn page_not_found(what: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="uk"><head><meta charset="utf-8"/><title>404</title>
+<link rel="stylesheet" href="/styles.css"/></head>
+<body>
+<h1>404 — не знайдено</h1>
+<p>Стаття <code>{}</code> не існує. <a href="/">На зміст →</a></p>
+</body></html>
+"#,
+        html_esc(what)
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Book, ChapterMeta};
+
+    /// Build an in-memory Epub that mirrors the real built book's skeleton.
+    fn build_test_epub() -> Epub {
+        let mut entries = vec![
+            ("mimetype".to_string(), b"application/epub+xml".to_vec()),
+            (
+                "META-INF/container.xml".to_string(),
+                br#"<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#.to_vec(),
+            ),
+            (
+                "OEBPS/content.opf".to_string(),
+                br#"<package><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>T</dc:title><dc:creator>A</dc:creator><dc:language>uk</dc:language><dc:identifier id="book-id">urn:uuid:1234</dc:identifier><dc:date>2026-01-01</dc:date><meta property="dcterms:modified">2026-01-01T00:00:00Z</meta></metadata><spine><itemref idref="ch01"/></spine></package>"#.to_vec(),
+            ),
+            (
+                "OEBPS/nav.xhtml".to_string(),
+                "<nav epub:type=\"toc\"><li><a href=\"chapter-01.xhtml\">Розділ 1</a></li></nav>"
+                    .as_bytes()
+                    .to_vec(),
+            ),
+            ("OEBPS/styles.css".to_string(), b"body { color: black; }".to_vec()),
+            (
+                "OEBPS/chapter-01.xhtml".to_string(),
+                "<html><body><h1>Перша</h1><p>Спокій.</p></body></html>".as_bytes().to_vec(),
+            ),
+        ];
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        // ensure mimetype is first, as in a real EPUB
+        entries.retain(|(n, _)| n != "mimetype");
+        entries.insert(
+            0,
+            ("mimetype".to_string(), b"application/epub+xml".to_vec()),
+        );
+        Epub { entries }
+    }
+
+    fn test_book() -> Book {
+        Book {
+            title: "Тест".to_string(),
+            author: "Автор".to_string(),
+            edition: 1,
+            year: 2026,
+            format: "EPUB 3.2".to_string(),
+            language: "uk".to_string(),
+            chapters: vec![ChapterMeta {
+                number: 1,
+                title: "Перша".to_string(),
+                file: "chapters/01.md".to_string(),
+            }],
+        }
+    }
+
+    #[test]
+    fn epub_get_and_text() {
+        let e = build_test_epub();
+        assert!(e.get("mimetype").is_some());
+        assert_eq!(
+            e.text("OEBPS/nav.xhtml").unwrap(),
+            "<nav epub:type=\"toc\"><li><a href=\"chapter-01.xhtml\">Розділ 1</a></li></nav>"
+        );
+        assert!(e.get("absent").is_none());
+    }
+
+    #[test]
+    fn kdp_check_passes_on_clean_book() {
+        let e = build_test_epub();
+        let report = kdp_check(&e, &test_book());
+        assert!(report.passed(), "report should pass:\n{:?}", report.items);
+    }
+
+    #[test]
+    fn kdp_check_flags_forbidden_script() {
+        let mut e = build_test_epub();
+        e.entries
+            .iter_mut()
+            .filter(|(n, _)| n == "OEBPS/chapter-01.xhtml")
+            .for_each(|(_, b)| *b = b"<script>alert(1)</script><body>x</body>".to_vec());
+        let report = kdp_check(&e, &test_book());
+        assert!(!report.passed());
+        let forbidden = report
+            .items
+            .iter()
+            .find(|i| i.name == "xhtml:forbidden")
+            .unwrap();
+        assert!(!forbidden.ok);
+        assert!(forbidden.detail.contains("<script"));
+    }
+
+    #[test]
+    fn kdp_check_flags_raw_ampersand() {
+        let mut e = build_test_epub();
+        e.entries
+            .iter_mut()
+            .filter(|(n, _)| n == "OEBPS/chapter-01.xhtml")
+            .for_each(|(_, b)| *b = b"<body>and this & that</body>".to_vec());
+        let report = kdp_check(&e, &test_book());
+        let forbidden = report
+            .items
+            .iter()
+            .find(|i| i.name == "xhtml:forbidden")
+            .unwrap();
+        assert!(!forbidden.ok);
+    }
+
+    #[test]
+    fn raw_ampersand_detection() {
+        assert!(raw_ampersand("a & b"));
+        assert!(!raw_ampersand("a &amp; b"));
+        assert!(!raw_ampersand("&lt;&gt;&quot;"));
+    }
+
+    #[test]
+    fn parse_request_head_parses_method_and_target() {
+        let req = parse_request_head(b"GET /chapter/1 HTTP/1.1\r\nhost: x");
+        let req = req.unwrap();
+        assert_eq!(req.method, "GET");
+        assert_eq!(req.target, "/chapter/1");
+    }
+
+    #[test]
+    fn route_serves_index_check_css_chapter_404() {
+        let e = build_test_epub();
+        let book = test_book();
+        let books = vec![LoadedBook {
+            id: "test".to_string(),
+            path: "build/rust_book.epub".to_string(),
+            book,
+            epub: e,
+        }];
+
+        let (s, body, mime) = route("/", &books);
+        assert_eq!(s, "200 OK");
+        assert!(body.contains("В книзі"));
+        assert!(body.contains("Окремо на сайті"));
+        assert!(body.contains("перевірок KDP"));
+        assert!(mime.starts_with("text/html"));
+
+        let (s, body, _) = route("/test/chapter/1", &books);
+        assert_eq!(s, "200 OK");
+        assert!(body.contains("<h1>Перша</h1>"));
+
+        let (s, body, _) = route("/chapter/1", &books);
+        assert_eq!(s, "200 OK");
+        assert!(body.contains("<h1>Перша</h1>"));
+
+        let (s, _, m) = route("/test/check", &books);
+        assert_eq!(s, "200 OK");
+        assert!(m.starts_with("application/json"));
+
+        let (s, _, _) = route("/styles.css", &books);
+        assert_eq!(s, "200 OK");
+
+        let (s, _, _) = route("/nope", &books);
+        assert_eq!(s, "404 Not Found");
+    }
+
+    #[test]
+    fn single_book_root_shows_index_multiple_show_shelf() {
+        let single = vec![LoadedBook {
+            id: "a".to_string(),
+            path: "a.epub".to_string(),
+            book: test_book(),
+            epub: build_test_epub(),
+        }];
+        let (s, body, _) = route("/", &single);
+        assert_eq!(s, "200 OK");
+        assert!(body.contains("В книзі"));
+        assert!(!body.contains("Книжкова полиця"));
+
+        let two = vec![
+            LoadedBook {
+                id: "a".to_string(),
+                path: "a.epub".to_string(),
+                book: test_book(),
+                epub: build_test_epub(),
+            },
+            LoadedBook {
+                id: "b".to_string(),
+                path: "b.epub".to_string(),
+                book: test_book(),
+                epub: build_test_epub(),
+            },
+        ];
+        let (s, body, _) = route("/", &two);
+        assert_eq!(s, "200 OK");
+        assert!(body.contains("Книжкова полиця"));
+    }
+
+    #[test]
+    fn parse_opf_book_reads_metadata_and_spine() {
+        let mut e = build_test_epub();
+        // give the OPF a real manifest + two spine items so auto-parse works
+        e.entries
+            .iter_mut()
+            .filter(|(n, _)| n == "OEBPS/content.opf")
+            .for_each(|(_, b)| {
+                *b = r#"<package><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Моя книга</dc:title><dc:creator>Хтось</dc:creator><dc:language>uk</dc:language></metadata><manifest><item id="ch01" href="chapter-01.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="ch01"/></spine></package>"#.as_bytes().to_vec()
+            });
+        let b = e.parse_opf_book().unwrap();
+        assert_eq!(b.title, "Моя книга");
+        assert_eq!(b.author, "Хтось");
+        assert_eq!(b.language, "uk");
+        assert_eq!(b.chapters.len(), 1);
+        assert_eq!(b.chapters[0].title, "Перша");
+        assert_eq!(b.chapters[0].file, "OEBPS/chapter-01.xhtml");
+    }
+
+    #[test]
+    fn slug_is_lowercase_and_dashes() {
+        assert_eq!(slug("Rust Book"), "rust-book");
+        assert_eq!(slug("Rust перед сном"), "rust");
+        assert_eq!(slug("   "), "book");
+    }
+
+    #[test]
+    fn choose_selects_book_by_prefix() {
+        let two = vec![
+            LoadedBook {
+                id: "first".to_string(),
+                path: "a.epub".to_string(),
+                book: test_book(),
+                epub: build_test_epub(),
+            },
+            LoadedBook {
+                id: "second".to_string(),
+                path: "b.epub".to_string(),
+                book: test_book(),
+                epub: build_test_epub(),
+            },
+        ];
+        let (b, rest) = choose(&two, "/second/chapter/3");
+        assert_eq!(b.id, "second");
+        assert_eq!(rest, "/chapter/3");
+        let (b, rest) = choose(&two, "/chapter/1");
+        assert_eq!(b.id, "first");
+        assert_eq!(rest, "/chapter/1");
+    }
+
+    #[test]
+    fn extract_body_returns_inner_content() {
+        let body = extract_body("<html><body><h1>Хай</h1><p>текст</p></body></html>").unwrap();
+        assert_eq!(body, "<h1>Хай</h1><p>текст</p>");
+    }
+
+    #[test]
+    fn external_urls_found_but_namespaces_ignored() {
+        let html = r#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+        <a href="http://example.com/x">link</a>
+        <img src="https://cdn.example/i.png"/>
+        <a href="page.xhtml">internal</a>
+        </html>"#;
+        let found = external_resource_urls(html);
+        assert!(found.iter().any(|u| u.starts_with("http://example.com")));
+        assert!(found.iter().any(|u| u.starts_with("https://cdn.example")));
+        assert_eq!(found.len(), 2);
+    }
+
+    #[test]
+    fn external_urls_terminates_on_mixed_content() {
+        // Regression: this input must not loop forever.
+        let html = r#"<p class="x">текст &amp; більше; <em>з *зірочками*</em></p><div></div>"#;
+        let found = external_resource_urls(html);
+        assert!(found.is_empty());
+    }
+}
