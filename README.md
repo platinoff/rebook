@@ -137,6 +137,24 @@ rebook/
 
 ---
 
+## ❤️ Support / Donate
+
+rebook is MIT and maintained in the open. If the tool saves you a session, here is how to keep it independent — pick whatever fits.
+
+<p align="center">
+  <a href="https://github.com/platinoff/rebook/stargazers"><img src="https://img.shields.io/badge/⭐_Star_the_repo-black?style=for-the-badge" alt="Star"></a>
+  <a href="https://github.com/sponsors/platinoff"><img src="https://img.shields.io/badge/GitHub_Sponsors-ea4aaa?style=for-the-badge&logo=github-sponsors&logoColor=white" alt="GitHub Sponsors"></a>
+</p>
+
+| | |
+|---|---|
+| ⭐ **Star** | Free, and it actually helps people find the repo |
+| 🐙 **[GitHub Sponsors](https://github.com/sponsors/platinoff)** | One-off or monthly · [github.com/sponsors/platinoff](https://github.com/sponsors/platinoff) |
+| 💰 **Solana (SOL)** | `GcdgNtdE8NEk3z9sQ5jXv2tqguZjSYqPqNAtjsjPNJx8` |
+| 🐛 **Issues** | Bugs and ideas: [github.com/platinoff/rebook/issues](https://github.com/platinoff/rebook/issues) |
+
+---
+
 ## License
 
 rebook is [MIT](LICENSE) © 2026 Artem Platinov. The tool and the bundled `samples/` example are free to reuse; your own book under `book.json` / `chapters/` remains your content.
