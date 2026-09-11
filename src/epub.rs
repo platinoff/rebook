@@ -2,7 +2,8 @@
 ///
 /// Builds a valid EPUB 3.2 (a ZIP with the fixed skeleton: `mimetype` stored
 /// and first, then `META-INF/container.xml`, then `OEBPS/content.opf`,
-/// `OEBPS/nav.xhtml`, `OEBPS/styles.css` and one XHTML page per chapter).
+/// `OEBPS/nav.xhtml`, `OEBPS/styles.css` and one XHTML page per chapter, plus
+/// an optional cover image + cover page).
 /// Chapter markdown is rendered to XHTML with a small, safe renderer.
 use std::io::{Read, Seek, Write};
 use std::path::Path;
@@ -81,6 +82,9 @@ pub fn generate_epub(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> 
         _ => {}
     }
 
+    let cover = load_cover(config)?;
+    let has_cover = cover.is_some();
+
     let file = std::fs::File::create(output_path)
         .map_err(|e| format!("Failed to create EPUB file: {}", e))?;
     let mut writer = zip::ZipWriter::new(file);
@@ -105,11 +109,19 @@ pub fn generate_epub(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> 
         "OEBPS/content.opf",
         &content_opf(config, book, chapters),
     )?;
-    write_text_entry(&mut writer, "OEBPS/nav.xhtml", &nav_xhtml(book))?;
+    write_text_entry(&mut writer, "OEBPS/nav.xhtml", &nav_xhtml(book, has_cover))?;
     write_text_entry(&mut writer, "OEBPS/styles.css", STYLES_CSS)?;
+    if let Some((name, bytes)) = &cover {
+        write_binary_entry(&mut writer, &format!("OEBPS/{name}"), bytes)?;
+        write_text_entry(&mut writer, "OEBPS/cover.xhtml", &cover_xhtml(config, name))?;
+    }
     for chapter in chapters {
         let name = format!("OEBPS/chapter-{:02}.xhtml", chapter.number);
-        write_text_entry(&mut writer, &name, &chapter_xhtml(chapter))?;
+        write_text_entry(
+            &mut writer,
+            &name,
+            &chapter_xhtml(chapter, &config.language),
+        )?;
     }
 
     writer
@@ -136,6 +148,95 @@ fn write_text_entry<W: Write + Seek>(
     Ok(())
 }
 
+/// Write one ZIP entry with raw bytes, deflated.
+fn write_binary_entry<W: Write + Seek>(
+    writer: &mut zip::ZipWriter<W>,
+    name: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+    writer
+        .start_file(name, options)
+        .map_err(|e| format!("Failed to start entry {}: {}", name, e))?;
+    writer
+        .write_all(bytes)
+        .map_err(|e| format!("Failed to write entry {}: {}", name, e))?;
+    Ok(())
+}
+
+/// Normalized zip entry name for a cover image, or `None` for an unsupported
+/// extension. Supported: png, jpg/jpeg, webp, gif, svg.
+pub fn cover_storage_name(img: &str) -> Option<String> {
+    let path = Path::new(img);
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    match ext.as_str() {
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" => Some(format!("cover.{ext}")),
+        _ => None,
+    }
+}
+
+fn cover_media_type(ext: &str) -> &'static str {
+    match ext {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        _ => "image/svg+xml",
+    }
+}
+
+/// Read the configured cover image from disk; `Ok(None)` when no cover is set.
+fn load_cover(config: &EpubConfig) -> Result<Option<(String, Vec<u8>)>, String> {
+    let img = match config
+        .cover_image
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        Some(img) => img,
+        None => return Ok(None),
+    };
+    let name = cover_storage_name(img).ok_or_else(|| {
+        format!(
+            "Unsupported cover image type: {} (use png/jpg/webp/gif/svg)",
+            img
+        )
+    })?;
+    let bytes =
+        std::fs::read(img).map_err(|e| format!("Cannot read cover image {}: {}", img, e))?;
+    let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or("png");
+    println!(
+        "Cover: {} -> OEBPS/{} ({})",
+        img,
+        name,
+        cover_media_type(ext)
+    );
+    Ok(Some((name, bytes)))
+}
+
+/// Cover page (EPUB3: `epub:type="cover"` container + image).
+fn cover_xhtml(config: &EpubConfig, img: &str) -> String {
+    let title = esc(&config.title);
+    format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+         <!DOCTYPE html>\n\
+         <html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" xml:lang=\"{lang}\">\n\
+         <head>\n\
+         \x20 <meta charset=\"utf-8\"/>\n\
+         \x20 <title>{title}</title>\n\
+         \x20 <link rel=\"stylesheet\" type=\"text/css\" href=\"styles.css\"/>\n\
+         </head>\n\
+         <body>\n\
+         \x20 <div epub:type=\"cover\">\n\
+         \x20\x20 <img src=\"{img}\" alt=\"{title}\"/>\n\
+         \x20 </div>\n\
+         </body>\n\
+         </html>\n",
+        lang = esc(&config.language),
+        title = title,
+        img = img,
+    )
+}
+
 /// Container document pointing at the OPF.
 fn container_xml() -> String {
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
@@ -151,7 +252,29 @@ fn container_xml() -> String {
 fn content_opf(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> String {
     let mut manifest = String::new();
     let mut spine = String::new();
+    let mut cover_meta = String::new();
+    let mut cover_manifest = String::new();
+    let mut cover_spine = String::new();
     let modified = format!("{:04}-{:02}-{:02}T00:00:00Z", book.year, 1, 1);
+
+    if let Some(img) = config
+        .cover_image
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        && let Some(name) = cover_storage_name(img)
+    {
+        let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or("png");
+        cover_meta.push_str("    <meta name=\"cover\" content=\"cover-image\"/>\n");
+        cover_manifest.push_str(
+                "    <item id=\"cover-page\" href=\"cover.xhtml\" media-type=\"application/xhtml+xml\"/>\n",
+            );
+        cover_manifest.push_str(&format!(
+                "    <item id=\"cover-image\" href=\"{name}\" media-type=\"{media}\" properties=\"cover-image\"/>\n",
+                name = name,
+                media = cover_media_type(ext),
+            ));
+        cover_spine.push_str("    <itemref idref=\"cover-page\"/>\n");
+    }
 
     manifest.push_str(
         "    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n",
@@ -174,6 +297,7 @@ fn content_opf(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> String
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
          <package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"book-id\" xml:lang=\"{lang}\">\n\
          \x20 <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n\
+         {cover_meta}\
          \x20\x20 <dc:identifier id=\"book-id\">{uuid}</dc:identifier>\n\
          \x20\x20 <dc:title>{title}</dc:title>\n\
          \x20\x20 <dc:creator>{author}</dc:creator>\n\
@@ -181,9 +305,9 @@ fn content_opf(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> String
          \x20\x20 <dc:date>{year}-01-01</dc:date>\n\
          \x20\x20 <meta property=\"dcterms:modified\">{modified}</meta>\n\
          \x20 </metadata>\n\
-         \x20 <manifest>\n{manifest}\
+         \x20 <manifest>\n{cover_manifest}{manifest}\
          \x20 </manifest>\n\
-         \x20 <spine>\n{spine}\
+         \x20 <spine>\n{cover_spine}{spine}\
          \x20 </spine>\n\
          </package>\n",
         lang = esc(&config.language),
@@ -192,20 +316,36 @@ fn content_opf(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> String
         author = esc(&config.author),
         year = book.year,
         modified = modified,
+        cover_meta = cover_meta,
+        cover_manifest = cover_manifest,
+        cover_spine = cover_spine,
         manifest = manifest,
         spine = spine,
     )
 }
 
-/// EPUB 3 navigation document (table of contents).
-fn nav_xhtml(book: &Book) -> String {
+/// EPUB 3 navigation document (table of contents). The rubric labels follow
+/// the book language (`en` → "Chapter"/"Contents", anything else → "Розділ"/"Зміст").
+fn nav_xhtml(book: &Book, has_cover: bool) -> String {
+    let (toc_title, chapter_word, cover_word) = if book.language == "en" {
+        ("Contents", "Chapter", "Cover")
+    } else {
+        ("Зміст", "Розділ", "Обкладинка")
+    };
     let mut items = String::new();
+    if has_cover {
+        items.push_str(&format!(
+            "     <li><a href=\"cover.xhtml\">{}</a></li>\n",
+            cover_word
+        ));
+    }
     for meta in &book.chapters {
         items.push_str(&format!(
-            "     <li><a href=\"chapter-{:02}.xhtml\">Розділ {} — {}</a></li>\n",
+            "     <li><a href=\"chapter-{:02}.xhtml\">{chapter_word} {} — {}</a></li>\n",
             meta.number,
             meta.number,
-            esc(&meta.title)
+            esc(&meta.title),
+            chapter_word = chapter_word,
         ));
     }
 
@@ -215,24 +355,30 @@ fn nav_xhtml(book: &Book) -> String {
          <html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" xml:lang=\"{lang}\">\n\
          <head>\n\
          \x20 <meta charset=\"utf-8\"/>\n\
-         \x20 <title>Зміст</title>\n\
+         \x20 <title>{toc_title}</title>\n\
          \x20 <link rel=\"stylesheet\" type=\"text/css\" href=\"styles.css\"/>\n\
          </head>\n\
          <body>\n\
          \x20 <nav epub:type=\"toc\" id=\"toc\">\n\
-         \x20\x20 <h1>Зміст</h1>\n\
+         \x20\x20 <h1>{toc_title}</h1>\n\
          \x20\x20 <ol>\n{items}\
          \x20\x20 </ol>\n\
          \x20 </nav>\n\
          </body>\n\
          </html>\n",
         lang = esc(&book.language),
+        toc_title = toc_title,
         items = items,
     )
 }
 
-/// One chapter rendered as a valid XHTML page.
-fn chapter_xhtml(chapter: &Chapter) -> String {
+/// One chapter rendered as a valid XHTML page; rubric labels follow `language`.
+fn chapter_xhtml(chapter: &Chapter, language: &str) -> String {
+    let chapter_word = if language == "en" {
+        "Chapter"
+    } else {
+        "Розділ"
+    };
     let title_esc = esc(&chapter.title);
     let body_html = render_markdown(&chapter.content);
 
@@ -242,15 +388,16 @@ fn chapter_xhtml(chapter: &Chapter) -> String {
          <html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"{lang}\">\n\
          <head>\n\
          \x20 <meta charset=\"utf-8\"/>\n\
-         \x20 <title>Розділ {num} — {title}</title>\n\
+         \x20 <title>{chapter_word} {num} — {title}</title>\n\
          \x20 <link rel=\"stylesheet\" type=\"text/css\" href=\"styles.css\"/>\n\
          </head>\n\
          <body>\n\
-         \x20 <h1>Розділ {num}: {title}</h1>\n\
+         \x20 <h1>{chapter_word} {num}: {title}</h1>\n\
          {body}\
          </body>\n\
          </html>\n",
-        lang = "uk",
+        lang = esc(language),
+        chapter_word = chapter_word,
         num = chapter.number,
         title = title_esc,
         body = body_html,
@@ -514,7 +661,11 @@ fn book_uuid(title: &str, author: &str, lang: &str) -> String {
 /// Verify a produced EPUB with the `zip` reader: the fixed skeleton, the
 /// stored `mimetype` first entry, and every chapter page present.
 /// Returns a human-readable listing (Rust-first validation — no external tools).
-pub fn check_epub(epub_path: &str, chapters: &[ChapterMeta]) -> Result<String, String> {
+pub fn check_epub(
+    epub_path: &str,
+    chapters: &[ChapterMeta],
+    cover: Option<&str>,
+) -> Result<String, String> {
     let path = Path::new(epub_path);
     let file = std::fs::File::open(path).map_err(|e| format!("EPUB file not found: {}", e))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Not a valid ZIP: {}", e))?;
@@ -552,12 +703,16 @@ pub fn check_epub(epub_path: &str, chapters: &[ChapterMeta]) -> Result<String, S
         listing.push_str("OK   mimetype (stored, application/epub+xml)\n");
     }
 
-    let required = [
-        "META-INF/container.xml",
-        "OEBPS/content.opf",
-        "OEBPS/nav.xhtml",
-        "OEBPS/styles.css",
+    let mut required = vec![
+        "META-INF/container.xml".to_string(),
+        "OEBPS/content.opf".to_string(),
+        "OEBPS/nav.xhtml".to_string(),
+        "OEBPS/styles.css".to_string(),
     ];
+    if let Some(name) = cover {
+        required.push(format!("OEBPS/{name}"));
+        required.push("OEBPS/cover.xhtml".to_string());
+    }
     let names: Vec<String> = (0..archive.len())
         .map(|i| {
             let f = archive.by_index(i);
@@ -565,8 +720,8 @@ pub fn check_epub(epub_path: &str, chapters: &[ChapterMeta]) -> Result<String, S
         })
         .collect();
 
-    for want in required {
-        if !names.iter().any(|n| n == want) {
+    for want in &required {
+        if !names.contains(want) {
             return Err(format!("Missing required entry: {}", want));
         }
         listing.push_str(&format!("OK   {}\n", want));
@@ -675,10 +830,16 @@ mod tests {
 
     #[test]
     fn nav_has_toc_and_chapter_links() {
-        let n = nav_xhtml(&sample_book());
+        let n = nav_xhtml(&sample_book(), false);
         assert!(n.contains("chapter-01.xhtml"));
         assert!(n.contains("chapter-02.xhtml"));
         assert!(n.contains("epub:type=\"toc\""));
+    }
+
+    #[test]
+    fn nav_links_cover_when_present() {
+        let n = nav_xhtml(&sample_book(), true);
+        assert!(n.contains("cover.xhtml"));
     }
 
     #[test]
@@ -696,6 +857,52 @@ mod tests {
         assert!(o.contains("styles.css"));
         assert!(o.contains("<itemref idref=\"ch01\"/>"));
         assert!(o.contains("urn:uuid:"));
+        assert!(!o.contains("properties=\"cover-image\""));
+    }
+
+    #[test]
+    fn nav_and_chapter_use_language_labels() {
+        let n = nav_xhtml(&sample_book(), false);
+        assert!(n.contains("<h1>Зміст</h1>"));
+        assert!(n.contains("Розділ 1 — Глава &amp; Перша"));
+
+        let mut en = sample_book();
+        en.language = "en".to_string();
+        let n = nav_xhtml(&en, true);
+        assert!(n.contains("<h1>Contents</h1>"));
+        assert!(n.contains("Chapter 1 — Глава &amp; Перша"));
+        assert!(n.contains(">Cover</a>"));
+
+        let ch = chapter_xhtml(&sample_chapters()[0], "en");
+        assert!(ch.contains("<h1>Chapter 1: Глава &amp; Перша</h1>"));
+        assert!(ch.contains("xml:lang=\"en\""));
+        assert!(!ch.contains("Розділ"));
+    }
+
+    #[test]
+    fn opf_cover_meta_manifest_spine() {
+        let cfg = EpubConfig {
+            title: "Test Book".to_string(),
+            author: "Author".to_string(),
+            output_path: "build/test.epub".to_string(),
+            cover_image: Some("assets/cover.PNG".to_string()),
+            language: "uk".to_string(),
+        };
+        let o = content_opf(&cfg, &sample_book(), &sample_chapters());
+        assert!(o.contains("<meta name=\"cover\" content=\"cover-image\"/>"));
+        assert!(
+            o.contains("href=\"cover.png\" media-type=\"image/png\" properties=\"cover-image\"")
+        );
+        assert!(o.contains("href=\"cover.xhtml\" media-type=\"application/xhtml+xml\""));
+        assert!(o.contains("<itemref idref=\"cover-page\"/>"));
+    }
+
+    #[test]
+    fn cover_storage_name_normalizes() {
+        assert_eq!(cover_storage_name("c.jpg").as_deref(), Some("cover.jpg"));
+        assert_eq!(cover_storage_name("x.PNG").as_deref(), Some("cover.png"));
+        assert_eq!(cover_storage_name("y.bmp"), None);
+        assert_eq!(cover_storage_name("noext"), None);
     }
 
     #[test]

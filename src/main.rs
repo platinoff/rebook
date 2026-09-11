@@ -8,7 +8,7 @@ fn main() {
     }
 
     match args[1].as_str() {
-        "build-epub" => match build_epub() {
+        "build-epub" => match build_epub(&args) {
             Ok(()) => println!("EPUB built successfully"),
             Err(e) => eprintln!("Error: {}", e),
         },
@@ -16,7 +16,7 @@ fn main() {
             Ok(()) => println!("rust_pered_sn_book.md written"),
             Err(e) => eprintln!("Error: {}", e),
         },
-        "check" => match check() {
+        "check" => match check(&args) {
             Ok(listing) => println!("{}", listing),
             Err(e) => eprintln!("Error: {}", e),
         },
@@ -101,6 +101,8 @@ fn print_help() {
     println!("==================================");
     println!("Available commands:");
     println!("  build-epub - Build a valid EPUB 3.2 (book.json + chapters/, or bundled sample)");
+    println!("               Optional: --cover <path> (png/jpg/webp/gif/svg;");
+    println!("               auto-detects cover.png/.jpg/.jpeg/.webp next to book.json)");
     println!("  md         - Render the whole book to a single markdown file");
     println!("  check      - Validate the built EPUB (Rust-only, zip crate)");
     println!("  view       - Local KDP EPUB previewer server (http://127.0.0.1:8090/)");
@@ -108,7 +110,7 @@ fn print_help() {
     println!("  kdp        - (deprecated) KDP accepts EPUB directly");
 }
 
-fn build_epub() -> Result<(), String> {
+fn build_epub(args: &[String]) -> Result<(), String> {
     println!("Building EPUB 3.2 format...");
     let proj = BookProject::resolve();
 
@@ -131,7 +133,7 @@ fn build_epub() -> Result<(), String> {
         title: book.title.clone(),
         author: book.author.clone(),
         output_path: proj.epub.to_string_lossy().into_owned(),
-        cover_image: None,
+        cover_image: resolve_cover(args, &proj),
         language: book.language.clone(),
     };
 
@@ -177,11 +179,18 @@ fn render_book_md() -> Result<(), String> {
 }
 
 /// Rust-only EPUB validation.
-fn check() -> Result<String, String> {
+fn check(args: &[String]) -> Result<String, String> {
     let proj = BookProject::resolve();
     let book = rust_book::load_book(&proj.json)?;
     let chapters = rust_book::load_chapters(&proj.base, &book)?;
-    let listing = rust_book::epub::check_epub(&proj.epub.to_string_lossy(), &book.chapters)?;
+    let cover_entry = resolve_cover(args, &proj)
+        .as_deref()
+        .and_then(rust_book::epub::cover_storage_name);
+    let listing = rust_book::epub::check_epub(
+        &proj.epub.to_string_lossy(),
+        &book.chapters,
+        cover_entry.as_deref(),
+    )?;
     let total: usize = chapters.iter().map(|c| c.word_count()).sum();
     Ok(format!(
         "{}\nChapter words: {} ({} chapters)\n",
@@ -189,6 +198,25 @@ fn check() -> Result<String, String> {
         total,
         chapters.len()
     ))
+}
+
+/// Cover resolution: an explicit `--cover <path>` wins; otherwise look for a
+/// `cover.png` / `cover.jpg` / `cover.jpeg` / `cover.webp` next to `book.json`.
+fn resolve_cover(args: &[String], proj: &BookProject) -> Option<String> {
+    let mut i = 0usize;
+    while i + 1 < args.len() {
+        if args[i] == "--cover" {
+            return Some(args[i + 1].clone());
+        }
+        i += 1;
+    }
+    for candidate in ["cover.png", "cover.jpg", "cover.jpeg", "cover.webp"] {
+        let path = proj.label(candidate);
+        if path.exists() {
+            return Some(path.to_string_lossy().into_owned());
+        }
+    }
+    None
 }
 
 /// KDP accepts a valid EPUB directly — no local AZW3/KFX conversion is needed.
@@ -223,7 +251,7 @@ fn view(port: &str) -> Result<(), String> {
     let proj = BookProject::resolve();
     if !proj.epub.exists() {
         println!("No EPUB found — building {}", proj.epub.display());
-        build_epub()?;
+        build_epub(&[])?;
     }
 
     // Discover every *.epub on disk (and adjacent book.json / auto-parse).
