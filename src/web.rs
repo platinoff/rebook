@@ -45,6 +45,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/drafts/{id}/chapter/{num}", put(api_draft_put_chapter))
         .route("/api/drafts/{id}/promote", post(api_draft_promote))
+        .route("/api/ai", post(api_ai))
         .fallback(viewer_fallback)
         .with_state(state)
 }
@@ -296,8 +297,48 @@ async fn api_draft_delete(
     AxPath((id,)): AxPath<(String,)>,
 ) -> Response {
     match crate::drafts::delete(&st.drafts_root, &id) {
-        Ok(()) => text_response(StatusCode::OK, "text/plain; charset=utf-8", "deleted".to_string()),
+        Ok(()) => text_response(
+            StatusCode::OK,
+            "text/plain; charset=utf-8",
+            "deleted".to_string(),
+        ),
         Err(e) => draft_err(e),
+    }
+}
+
+/// Body for `POST /api/ai`.
+#[derive(serde::Deserialize)]
+struct AiIn {
+    mode: String,
+    #[serde(default)]
+    prompt: String,
+    #[serde(default)]
+    context: String,
+}
+
+/// OpenAI-compatible assist; 503 when REBOOK_AI_ENDPOINT is unset (offline-safe).
+async fn api_ai(Json(body): Json<AiIn>) -> Response {
+    if !crate::ai::enabled() {
+        return text_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "text/plain; charset=utf-8",
+            "AI disabled: set REBOOK_AI_ENDPOINT to a local OpenAI-compatible server (http://…)"
+                .to_string(),
+        );
+    }
+    if !crate::ai::MODES.contains(&body.mode.as_str()) {
+        return draft_err(format!(
+            "unknown mode {:?} (use /{}/)",
+            body.mode,
+            crate::ai::MODES.join("/")
+        ));
+    }
+    let endpoint = std::env::var("REBOOK_AI_ENDPOINT").unwrap_or_default();
+    let model = std::env::var("REBOOK_AI_MODEL").unwrap_or_else(|_| "local".to_string());
+    let payload = crate::ai::chat_body(&body.mode, &body.prompt, &body.context, &model);
+    match crate::ai::complete(&endpoint, &payload).await {
+        Ok(text) => text_response(StatusCode::OK, "text/plain; charset=utf-8", text),
+        Err(e) => text_response(StatusCode::BAD_GATEWAY, "text/plain; charset=utf-8", e),
     }
 }
 

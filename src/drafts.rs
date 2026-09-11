@@ -144,7 +144,7 @@ pub fn list(root: &Path) -> Result<Vec<DraftMeta>, String> {
             out.push(m);
         }
     }
-    out.sort_by(|a, b| b.updated.cmp(&a.updated));
+    out.sort_by_key(|m| std::cmp::Reverse(m.updated));
     Ok(out)
 }
 

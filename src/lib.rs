@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+pub mod ai;
 pub mod barcode;
 pub mod cover;
 pub mod drafts;

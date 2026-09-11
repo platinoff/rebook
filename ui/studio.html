@@ -41,6 +41,15 @@
   </div>
   <div id="editor" hidden>
    <input id="chapTitle" placeholder="Заголовок розділу" style="width:100%;margin-bottom:.5em"/>
+   <div class="bar" style="flex-wrap:wrap">
+    <span style="color:#9aa0ac">AI:</span>
+    <button class="ghost ai" data-mode="continue">продовжити</button>
+    <button class="ghost ai" data-mode="rewrite">переписати</button>
+    <button class="ghost ai" data-mode="summarize">резюме</button>
+    <button class="ghost ai" data-mode="outline">план</button>
+    <button class="ghost ai" data-mode="cover-brief">арт-бриф</button>
+    <span id="aistat" style="color:#9aa0ac"></span>
+   </div>
    <textarea id="md" placeholder="## Заголовок&#10;&#10;текст…"></textarea>
    <pre id="preview" style="white-space:pre-wrap;border-top:1px dashed #2f3542;margin-top:.6em;"></pre>
   </div>
@@ -107,6 +116,20 @@ function render(){
   return '<p>'+esc(p)+'</p>';}).join('');
 }
 $('#md').addEventListener('input',render);
+document.querySelectorAll('.ai').forEach(b=>b.onclick=async()=>{
+ const mode=b.dataset.mode,ta=$('#md');
+ $('#aistat').textContent='думаю…';
+ try{
+  const r=await fetch('/api/ai',{method:'POST',headers:{'content-type':'application/json'},
+   body:JSON.stringify({mode,prompt:mode=='continue'?'':'',context:ta.value})});
+  const t=await r.text();
+  if(!r.ok)throw new Error(t);
+  if(mode=='continue')ta.value=ta.value.replace(/\s*$/,'\n\n')+t.trim()+'\n';
+  else if(mode=='rewrite')ta.value=t.trim();
+  else ta.value+='\n\n<!-- AI '+mode+' -->\n'+t.trim()+'\n';
+  render();$('#aistat').textContent='ok';
+ }catch(e){$('#aistat').textContent=e.message.slice(0,80);}
+});
 boot();
 </script>
 </body>
