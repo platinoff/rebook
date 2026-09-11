@@ -59,6 +59,16 @@ fn main() {
             Ok(()) => {}
             Err(e) => eprintln!("Error: {}", e),
         },
+        "check-print" => {
+            let dir = args
+                .get(2)
+                .cloned()
+                .unwrap_or_else(|| "products".to_string());
+            match check_print(&dir) {
+                Ok(()) => {}
+                Err(e) => eprintln!("Error: {}", e),
+            }
+        }
         _ => {
             eprintln!("Unknown command: {}", args[1]);
             print_help();
@@ -119,6 +129,7 @@ fn print_help() {
     println!(
         "  shelf      - Build all product formats (product.json targets: ebook/paperback/hardcover)"
     );
+    println!("  check-print [products] - KDP print-gate v2: verify packages vs standards");
     println!("  view       - Local KDP EPUB previewer server (http://127.0.0.1:8090/)");
     println!("  convert    - (deprecated) KDP accepts EPUB directly");
     println!("  kdp        - (deprecated) KDP accepts EPUB directly");
@@ -254,6 +265,49 @@ fn kdp_build(_azw3_path: &str) -> Result<(), String> {
          (build/rust_book.epub); there is no local AZW3 build step."
             .to_string(),
     )
+}
+
+/// KDP gate v2: verify built print packages under a products dir.
+fn check_print(dir: &str) -> Result<(), String> {
+    let root = Path::new(dir);
+    if !root.exists() {
+        return Err(format!("no {dir} — run `shelf` first"));
+    }
+    let mut any = false;
+    let mut failed = 0usize;
+    let mut books: Vec<_> = std::fs::read_dir(root)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_dir())
+        .collect();
+    books.sort();
+    for book in books {
+        for fmt in ["paperback", "hardcover"] {
+            let pkg = book.join(fmt);
+            if !pkg.join("manifest.json").exists() {
+                continue;
+            }
+            any = true;
+            println!("── {} ──", pkg.display());
+            for item in rust_book::shelf::verify_package(&pkg)? {
+                let mark = if item.ok { "OK  " } else { "FAIL" };
+                if !item.ok {
+                    failed += 1;
+                }
+                println!("  {mark} {} · {}", item.name, item.detail);
+            }
+        }
+    }
+    if !any {
+        println!("Немає print-пакетів у {dir} (targets: paperback/hardcover у product.json).");
+        return Ok(());
+    }
+    if failed == 0 {
+        println!("✓ print gate: усі перевірки green");
+    } else {
+        println!("✗ print gate: {failed} FAIL");
+    }
+    Ok(())
 }
 
 /// Build every targeted product format for the resolved book project.

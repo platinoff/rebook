@@ -16,7 +16,8 @@ use crate::barcode::barcode_svg;
 use crate::cover::{Mode, template, template_svg};
 use crate::epub::{EpubConfig, generate_epub};
 use crate::standards::{
-    BARCODE_ZONE_IN, HARDCOVER_TRIMS, PAPERBACK_TRIMS, Paper, find_trim, gutter_in, spine_width,
+    BARCODE_ZONE_IN, HARDCOVER_TRIMS, PAPERBACK_TRIMS, Paper, find_trim, gutter_in,
+    spine_text_allowed, spine_width,
 };
 use crate::viewer::slug;
 use crate::{Book, Chapter};
@@ -318,6 +319,146 @@ fn write_checklist(path: &Path, format: &str, extra: &str) -> Result<(), String>
     std::fs::write(path, body).map_err(|e| format!("write checklist: {e}"))
 }
 
+/// KDP gate v2: re-verify a built package folder against `standards`
+/// (numbers in `manifest.json` must match the formulas, EAN-13 must be
+/// valid, spine text must respect the >79 rule when `cover.json` is near).
+pub fn verify_package(pkg_dir: &Path) -> Result<Vec<crate::viewer::KdpCheckItem>, String> {
+    let raw = std::fs::read_to_string(pkg_dir.join("manifest.json"))
+        .map_err(|e| format!("{}: {e}", pkg_dir.display()))?;
+    let m: PackageManifest = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let paper = match m.paper.as_str() {
+        "White" => Paper::White,
+        "Cream" => Paper::Cream,
+        "Groundwood" => Paper::Groundwood,
+        _ => Paper::PremiumColor,
+    };
+    let mut items = Vec::new();
+    let mut push = |name: &str, ok: bool, detail: String| {
+        items.push(crate::viewer::KdpCheckItem {
+            name: name.to_string(),
+            ok,
+            detail,
+        });
+    };
+
+    let is_hc = m.format == "hardcover";
+    let table = if is_hc {
+        HARDCOVER_TRIMS
+    } else {
+        PAPERBACK_TRIMS
+    };
+    let trim_ok = find_trim(table, &m.trim).is_some();
+    push("print:trim", trim_ok, format!("{} ({})", m.trim, m.format));
+
+    let (min, max) = if is_hc { (76, 550) } else { (24, 828) };
+    let range = m.pages % 2 == 0 && (min..=max).contains(&m.pages);
+    push(
+        "print:pages-range",
+        range,
+        format!("{} even in {min}–{max}", m.pages),
+    );
+
+    if !is_hc {
+        if let Some(t) = find_trim(PAPERBACK_TRIMS, &m.trim) {
+            let ok = crate::standards::paperback_pages_ok(t, m.pages, paper);
+            push(
+                "print:trim-paper-pages",
+                ok,
+                format!("{}/{:?}", m.trim, paper),
+            );
+        }
+    }
+    if m.pages_estimated {
+        push(
+            "print:pages-source",
+            false,
+            "pages ESTIMATED — confirm from a proof before ordering".to_string(),
+        );
+    }
+
+    let spine_exp = if is_hc {
+        crate::standards::hardcover_spine_approx(m.pages, paper)
+    } else {
+        crate::standards::spine_width(m.pages, paper)
+    };
+    push(
+        "print:spine-formula",
+        (m.spine_in - spine_exp).abs() < 1e-6,
+        format!(
+            "{:.4} vs {:.4} ({})",
+            m.spine_in,
+            spine_exp,
+            if is_hc {
+                "HC approximate"
+            } else {
+                "KDP constant"
+            }
+        ),
+    );
+
+    let gut_exp = crate::standards::gutter_in(m.pages).unwrap_or(0.0);
+    push(
+        "print:gutter-table",
+        (m.gutter_in - gut_exp).abs() < 1e-6,
+        format!("{:.3} vs {:.3}", m.gutter_in, gut_exp),
+    );
+
+    if let Some(t) = find_trim(table, &m.trim) {
+        let cov_exp = if is_hc {
+            (
+                2.0 * t.w + spine_exp + 2.0 * crate::standards::HC_WRAP_IN,
+                t.h + 2.0 * crate::standards::HC_WRAP_IN,
+            )
+        } else {
+            (
+                2.0 * crate::standards::BLEED_IN + 2.0 * t.w + spine_exp,
+                t.h + 2.0 * crate::standards::BLEED_IN,
+            )
+        };
+        push(
+            "print:cover-size",
+            (m.cover_in.0 - cov_exp.0).abs() < 1e-3 && (m.cover_in.1 - cov_exp.1).abs() < 1e-3,
+            format!(
+                "{:.4}×{:.4} vs {:.4}×{:.4}",
+                m.cover_in.0, m.cover_in.1, cov_exp.0, cov_exp.1
+            ),
+        );
+    }
+
+    let ean_ok = match &m.ean13 {
+        Some(e) => crate::standards::ean13_is_valid(e),
+        None => true,
+    };
+    push(
+        "print:ean13",
+        ean_ok,
+        m.ean13
+            .clone()
+            .unwrap_or_else(|| "none — KDP will stamp".to_string()),
+    );
+
+    // cover.json nearby? spine text must respect the pages rule.
+    if let Ok(cj) = std::fs::read_to_string(pkg_dir.join("cover.json")) {
+        if let Ok(doc) = serde_json::from_str::<crate::coverdoc::CoverDoc>(&cj) {
+            let ok = doc.spine_title.is_none() || spine_text_allowed(m.pages);
+            push(
+                "print:spine-text-rule",
+                ok,
+                format!(
+                    "pages {} >79 ⇒ spine {}",
+                    m.pages,
+                    if doc.spine_title.is_some() {
+                        "text"
+                    } else {
+                        "plain"
+                    }
+                ),
+            );
+        }
+    }
+    Ok(items)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,6 +540,41 @@ mod tests {
         assert!(names.contains(&"cover-wrap.svg".to_string()));
         assert!(names.contains(&"manifest.json".to_string()));
         assert!(names.contains(&"barcode.svg".to_string()));
+    }
+
+    #[test]
+    fn print_gate_verifies_built_package() {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("gate-test");
+        let _ = std::fs::remove_dir_all(&base);
+        let (book, chapters) = mini();
+        let cfg = ProductConfig {
+            targets: vec!["paperback".to_string()],
+            trim: "6x9".to_string(),
+            pages: Some(300),
+            paper: PaperName::White,
+            isbn: Some("978-3-16-148410-0".to_string()),
+        };
+        let p = build_product(&base, &book, &chapters, &cfg).unwrap();
+        let items = verify_package(&p.dir.join("paperback")).unwrap();
+        assert!(items.iter().all(|i| i.ok), "all green:\n{items:#?}");
+
+        // tamper the manifest: bogus spine + broken EAN must both go red.
+        let mp = p.dir.join("paperback").join("manifest.json");
+        let mf: PackageManifest =
+            serde_json::from_str(&std::fs::read_to_string(&mp).unwrap()).unwrap();
+        let mut bad = mf.clone();
+        bad.spine_in = 9.9;
+        bad.ean13 = Some("9783161484101".to_string());
+        std::fs::write(&mp, serde_json::to_string(&bad).unwrap()).unwrap();
+        let items = verify_package(&p.dir.join("paperback")).unwrap();
+        assert!(
+            items
+                .iter()
+                .any(|i| i.name == "print:spine-formula" && !i.ok)
+        );
+        assert!(items.iter().any(|i| i.name == "print:ean13" && !i.ok));
     }
 
     #[test]

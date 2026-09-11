@@ -201,7 +201,7 @@ fn unescape_xml(s: &str) -> String {
 }
 
 /// Individual result line of the KDP compliance check.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct KdpCheckItem {
     pub name: String,
     pub ok: bool,
@@ -853,6 +853,11 @@ pub(crate) fn slug(title: &str) -> String {
     }
     let s = s.trim_matches('-').to_string();
     if s.is_empty() { "book".to_string() } else { s }
+}
+
+/// True when `s` is already a canonical slug (used to fence API path params).
+pub(crate) fn slug_is_safe(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 64 && slug(s) == s
 }
 
 /// The book selected by a request path prefix, falling back to the first.

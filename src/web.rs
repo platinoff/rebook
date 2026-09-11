@@ -50,6 +50,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(api_draft_get_cover).put(api_draft_put_cover),
         )
         .route("/api/cover", post(api_cover))
+        .route("/api/print/check/{slug}/{format}", get(api_print_check))
         .route("/api/ai", post(api_ai))
         .fallback(viewer_fallback)
         .with_state(state)
@@ -308,6 +309,23 @@ async fn api_draft_delete(
             "deleted".to_string(),
         ),
         Err(e) => draft_err(e),
+    }
+}
+
+/// `GET /api/print/check/{slug}/{format}` → KDP print-gate v2 JSON items
+/// for a built package under `products/` (slug/format strictly validated).
+async fn api_print_check(AxPath((slug, format)): AxPath<(String, String)>) -> Response {
+    if crate::viewer::slug_is_safe(&slug) && (format == "paperback" || format == "hardcover") {
+        let dir = std::path::Path::new("products").join(&slug).join(&format);
+        match crate::shelf::verify_package(&dir) {
+            Ok(items) => {
+                let body = serde_json::to_string(&items).unwrap_or_else(|_| "[]".into());
+                text_response(StatusCode::OK, "application/json; charset=utf-8", body)
+            }
+            Err(e) => draft_err(e),
+        }
+    } else {
+        draft_err("bad slug or format".to_string())
     }
 }
 
