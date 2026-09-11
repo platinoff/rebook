@@ -17,7 +17,7 @@ use tokio::net::TcpListener;
 
 use crate::cover::{Mode, template, template_svg_with_isbn};
 use crate::standards::{HARDCOVER_TRIMS, PAPERBACK_TRIMS, Paper, find_trim};
-use crate::viewer::{DEFAULT_ADDR, LoadedBook, route};
+use crate::viewer::{DEFAULT_ADDR, LoadedBook, route, slug_is_safe};
 
 /// Shared server state: initial shelf snapshot + scan root for live rescan.
 pub struct AppState {
@@ -27,6 +27,8 @@ pub struct AppState {
     pub root: std::path::PathBuf,
     /// `workspace/drafts` directory (Studio area).
     pub drafts_root: std::path::PathBuf,
+    /// `products` directory (Shelf product area).
+    pub products_root: std::path::PathBuf,
 }
 
 impl AppState {
@@ -38,6 +40,7 @@ impl AppState {
 
 const STUDIO_HTML: &str = include_str!("../ui/studio.html");
 const COVER_HTML: &str = include_str!("../ui/cover.html");
+const PRODUCTS_HTML: &str = include_str!("../ui/products.html");
 
 /// Build the router over a frozen set of discovered books.
 pub fn router(state: Arc<AppState>) -> Router {
@@ -45,6 +48,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/health", get(health))
         .route("/studio", get(studio_page))
         .route("/cover", get(cover_page))
+        .route("/products", get(products_page))
+        .route("/api/products", get(api_products))
+        .route(
+            "/api/products/download/{slug}/{file}",
+            get(api_product_download),
+        )
         .route("/api/books", get(api_books))
         .route("/api/cover-template", get(api_cover_template))
         .route("/api/drafts", get(api_drafts_list).post(api_drafts_create))
@@ -72,6 +81,7 @@ pub async fn serve_web(books: Vec<LoadedBook>, addr: &str) -> Result<(), String>
         books,
         root: std::path::PathBuf::from("."),
         drafts_root,
+        products_root: std::path::PathBuf::from("products"),
     });
     println!("rebook web service: http://{addr}/");
     println!("  / — полиця/читалка · /studio — чернетки · /cover — обкладинки");
@@ -98,6 +108,51 @@ async fn studio_page() -> Html<&'static str> {
 
 async fn cover_page() -> Html<&'static str> {
     Html(COVER_HTML)
+}
+
+async fn products_page() -> Html<&'static str> {
+    Html(PRODUCTS_HTML)
+}
+
+/// JSON list of built products (folders under `products/`).
+async fn api_products(State(st): State<Arc<AppState>>) -> Response {
+    let items = crate::shelf::list_products(&st.products_root);
+    let body = serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string());
+    text_response(StatusCode::OK, "application/json; charset=utf-8", body)
+}
+
+/// Serve one built file from a product folder (`<slug>.epub`, `<slug>-pb.zip`,
+/// `<slug>-hc.zip`) — slug-fenced, exact file whitelist.
+async fn api_product_download(
+    State(st): State<Arc<AppState>>,
+    AxPath((slug, file)): AxPath<(String, String)>,
+) -> Response {
+    let allowed = (slug_is_safe(&slug) && file == format!("{slug}.epub"))
+        || (slug_is_safe(&slug)
+            && (file == format!("{slug}-pb.zip") || file == format!("{slug}-hc.zip")));
+    if !allowed {
+        return draft_err("unknown product file".to_string());
+    }
+    let path = st.products_root.join(&slug).join(&file);
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            let mime = if file.ends_with(".epub") {
+                "application/epub+zip"
+            } else {
+                "application/zip"
+            };
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, mime)
+                .header(
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{file}\""),
+                )
+                .body(axum::body::Body::from(bytes))
+                .unwrap_or_default()
+        }
+        Err(_) => (StatusCode::NOT_FOUND, "not found").into_response(),
+    }
 }
 
 async fn api_books(State(st): State<Arc<AppState>>) -> Response {
@@ -482,6 +537,9 @@ mod tests {
             drafts_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("target")
                 .join("web-drafts"),
+            products_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("target")
+                .join("web-products-missing"),
         })
     }
 
@@ -571,6 +629,7 @@ mod tests {
             books: vec![],
             root: root.clone(),
             drafts_root: root.join("drafts"),
+            products_root: root.join("products-none"),
         });
         let (s, body) = get(router(st.clone()), "/api/books").await;
         assert_eq!(s, StatusCode::OK);
@@ -651,6 +710,65 @@ mod tests {
         assert_eq!(books.len(), 2);
         assert_eq!(books[0].id, "same-book");
         assert_eq!(books[1].id, "same-book-2");
+    }
+
+    #[tokio::test]
+    async fn products_api_and_download() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("web-products");
+        let _ = std::fs::remove_dir_all(&root);
+        let book = Book {
+            title: "Web Prod".to_string(),
+            author: "A".to_string(),
+            edition: 1,
+            year: 2026,
+            format: "EPUB 3.2".to_string(),
+            language: "uk".to_string(),
+            chapters: vec![ChapterMeta {
+                number: 1,
+                title: "One".to_string(),
+                file: "c1.md".to_string(),
+            }],
+        };
+        let chapters = vec![crate::Chapter {
+            number: 1,
+            title: "One".to_string(),
+            content: "abc ".repeat(400),
+        }];
+        let cfg = crate::shelf::ProductConfig {
+            targets: vec!["ebook".to_string(), "paperback".to_string()],
+            trim: "6x9".to_string(),
+            pages: Some(200),
+            paper: crate::shelf::PaperName::White,
+            isbn: None,
+        };
+        crate::shelf::build_product(&root, &book, &chapters, &cfg).unwrap();
+        // build_product nests under products/
+        let st = Arc::new(AppState {
+            books: vec![],
+            root: root.clone(),
+            drafts_root: root.join("d"),
+            products_root: root.join("products"),
+        });
+        let (s, body) = get(router(st.clone()), "/api/products").await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(body.contains("web-prod"));
+        assert!(body.contains("paperback"));
+        let (s, _) = get(
+            router(st.clone()),
+            "/api/products/download/web-prod/web-prod-pb.zip",
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+        let (s, _) = get(
+            router(st.clone()),
+            "/api/products/download/web-prod/..%2Fsecret",
+        )
+        .await;
+        assert_ne!(s, StatusCode::OK);
+        let (s, _) = get(router(st.clone()), "/products").await;
+        assert_eq!(s, StatusCode::OK);
     }
 
     #[test]

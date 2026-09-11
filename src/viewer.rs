@@ -534,7 +534,7 @@ fn render_index(epub: &Epub, book: &Book, book_id: &str) -> String {
 <header>
 <h1>{title}</h1>
 <p class="author">Автор: {author} <span class="meta">· {lang} · EPUB 3.2</span></p>
-<a class="shelf-link" href="/books">☷ Усі книги на сервері</a>
+<a class="shelf-link" href="/books">☷ Усі книги на сервері</a> · <a class="shelf-link" href="/products">📦 Продукти (KDP-пакети)</a>
 </header>
 
 <section class="frame book">
@@ -648,7 +648,7 @@ fn render_shelf(books: &[LoadedBook]) -> String {
 <body>
 <header>
 <h1>Книжкова полиця</h1>
-<p class="author">Знайдено EPUB: <span class="meta">{count}</span></p>
+<p class="author">Знайдено EPUB: <span class="meta">{count}</span> · <a class="a" href="/products" style="color:#7aa2f7">📦 Продукти →</a></p>
 </header>
 {cards}
 </body>

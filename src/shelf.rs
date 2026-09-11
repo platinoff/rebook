@@ -312,6 +312,83 @@ pub fn kdp_checklist(m: &PackageManifest) -> String {
     s
 }
 
+/// One built product (folder under `products/`), summarized for the UI.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProductSummary {
+    /// Folder slug.
+    pub slug: String,
+    /// Title from a known book.json/manifest when resolvable (else slug).
+    pub title: String,
+    /// ebook/<slug>.epub present.
+    pub has_ebook: bool,
+    /// Format folders present: subset of paperback/hardcover with zip name.
+    pub packages: Vec<PackageSummary>,
+}
+
+/// Print package presence for [`ProductSummary`].
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageSummary {
+    /// `paperback` | `hardcover`.
+    pub format: String,
+    /// File name of the built zip (if any).
+    pub zip: Option<String>,
+    /// Pages from `manifest.json`.
+    pub pages: u32,
+    /// Trim from `manifest.json`.
+    pub trim: String,
+}
+
+/// List all built products under `products_root` (live walk, no cache).
+pub fn list_products(products_root: &Path) -> Vec<ProductSummary> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(products_root) else {
+        return out;
+    };
+    let mut dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    for dir in dirs {
+        let Some(slug) = dir.file_name().map(|s| s.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let ebook = dir.join("ebook").join(format!("{slug}.epub")).exists();
+        let mut packages = Vec::new();
+        for fmt in ["paperback", "hardcover"] {
+            let pkg = dir.join(fmt);
+            if !pkg.join("manifest.json").exists() {
+                continue;
+            }
+            let (pages, trim) = std::fs::read_to_string(pkg.join("manifest.json"))
+                .ok()
+                .and_then(|raw| serde_json::from_str::<PackageManifest>(&raw).ok())
+                .map(|m| (m.pages, m.trim))
+                .unwrap_or((0, String::new()));
+            let zip_name = format!("{slug}-{}.zip", tag_of(fmt));
+            let zip = dir.join(&zip_name).exists().then_some(zip_name);
+            packages.push(PackageSummary {
+                format: fmt.to_string(),
+                zip,
+                pages,
+                trim,
+            });
+        }
+        out.push(ProductSummary {
+            slug: slug.clone(),
+            title: slug,
+            has_ebook: ebook,
+            packages,
+        });
+    }
+    out
+}
+
+fn tag_of(fmt: &str) -> &'static str {
+    if fmt == "paperback" { "pb" } else { "hc" }
+}
+
 fn write_checklist(path: &Path, format: &str, extra: &str) -> Result<(), String> {
     let body = format!(
         "# KDP checklist — {format}\n\n- upload the strict EPUB from this folder (EPUBCheck-clean: mimetype first/stored, nav.xhtml, dcterms:modified)\n{extra}- DRM: per-book toggle; DRM-free buyers may download EPUB since 2026-01-20\n- cover (front-only JPEG/TIFF 1600×2560) uploaded separately in KDP\n"

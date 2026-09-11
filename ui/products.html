@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Продукти — rebook</title>
+<link rel="stylesheet" href="/styles.css"/>
+<style>
+ .card{background:#1b1e27;border:1px solid #2f3542;border-left:4px solid #7aa2f7;border-radius:10px;padding:1em 1.2em;margin:1em 0;}
+ .badge{display:inline-block;margin:.25em .4em .25em 0;padding:.2em .7em;border-radius:6px;font-size:.85em;border:1px solid #2e9e44;color:#2e9e44;}
+ .badge.gate{border-color:#7aa2f7;color:#7aa2f7;cursor:pointer;}
+ .badge.bad{border-color:#f85149;color:#f85149;}
+ .a{color:#7aa2f7;text-decoration:none;}
+ .meta{color:#9aa0ac;font-size:.9em;}
+ .gateout{margin-top:.5em;padding:.6em;background:#12141a;border-radius:8px;font-family:monospace;font-size:.85em;display:none;white-space:pre-wrap;}
+</style>
+</head>
+<body>
+<div id="products-app">
+<header>
+<h1>Продукти (Shelf)</h1>
+<p class="author"><a class="a" href="/">← Книги</a> · <a class="a" href="/studio">Studio</a> · <a class="a" href="/cover">Cover</a></p>
+<p class="meta">Зібрано <code>cargo run -- shelf</code>; перевірка воріт — <code>/api/print/check</code>.</p>
+</header>
+<div id="list">…</div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+async function boot(){
+ let items=[];try{items=await (await fetch('/api/products')).json();}catch(e){}
+ $('#list').innerHTML=items.length?items.map(p=>{
+  const fmts=[];
+  if(p.has_ebook)fmts.push('<a class="badge" href="/api/products/download/'+p.slug+'/'+p.slug+'.epub" download>eBook EPUB ↓</a>');
+  for(const k of p.packages){
+   fmts.push('<span class="badge">'+k.format+' · '+k.trim+' · '+k.pages+' p</span>');
+   if(k.zip)fmts.push('<a class="badge" href="/api/products/download/'+p.slug+'/'+k.zip+'" download>zip ↓</a>');
+   fmts.push('<span class="badge gate" data-s="'+p.slug+'" data-f="'+k.format+'">KDP-ворота: перевірити</span>');
+   fmts.push('<div class="gateout" id="g-'+p.slug+'-'+k.format+'"></div>');
+  }
+  return '<div class="card"><h3>'+p.slug+'</h3>'+fmts.join(' ')+'</div>';
+ }).join(''):'<p>Немає зібраних продуктів. Додай formats у <code>product.json</code> і запусти <code>cargo run -- shelf</code>.</p>';
+ document.querySelectorAll('.badge.gate').forEach(b=>b.onclick=async()=>{
+  const out=$('#g-'+b.dataset.s+'-'+b.dataset.f);out.style.display='block';out.textContent='…';
+  const r=await fetch('/api/print/check/'+b.dataset.s+'/'+b.dataset.f);
+  const items=await r.json();
+  const bad=items.filter(i=>!i.ok);
+  out.textContent=items.map(i=>(i.ok?'✓ ':'✗ ')+i.name+' · '+i.detail).join('\n');
+  b.className='badge '+(r.ok&&bad.length===0?'':'bad');
+  b.textContent='KDP-ворота: '+(r.ok&&bad.length===0?'GREEN':(r.ok?bad.length+' FAIL':'помилка'));
+ });
+}
+boot();
+</script>
+</body>
+</html>
