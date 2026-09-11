@@ -4,6 +4,8 @@
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+pub mod barcode;
+pub mod cover;
 pub mod epub;
 pub mod kdp;
 pub mod standards;

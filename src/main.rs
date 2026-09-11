@@ -51,6 +51,10 @@ fn main() {
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
+        "cover-template" => match cover_template(&args[2..]) {
+            Ok(path) => println!("✓ Template written: {path}"),
+            Err(e) => eprintln!("Error: {}", e),
+        },
         _ => {
             eprintln!("Unknown command: {}", args[1]);
             print_help();
@@ -105,6 +109,9 @@ fn print_help() {
     println!("               auto-detects cover.png/.jpg/.jpeg/.webp next to book.json)");
     println!("  md         - Render the whole book to a single markdown file");
     println!("  check      - Validate the built EPUB (Rust-only, zip crate)");
+    println!("  cover-template [TRIM] [PAGES] [white|cream|ground|premium]");
+    println!("               [--mode pb|hc|dj] [--out FILE.svg] [--isbn ISBN]");
+    println!("               Full-wrap print template SVG at 300 DPI (KDP/Ingram geometry)");
     println!("  view       - Local KDP EPUB previewer server (http://127.0.0.1:8090/)");
     println!("  convert    - (deprecated) KDP accepts EPUB directly");
     println!("  kdp        - (deprecated) KDP accepts EPUB directly");
@@ -240,6 +247,85 @@ fn kdp_build(_azw3_path: &str) -> Result<(), String> {
          (build/rust_book.epub); there is no local AZW3 build step."
             .to_string(),
     )
+}
+
+/// Generate a full-wrap cover template SVG from the KDP/Ingram geometry.
+fn cover_template(args: &[String]) -> Result<String, String> {
+    let mut positional: Vec<&str> = Vec::new();
+    let mut mode = "pb";
+    let mut out: Option<String> = None;
+    let mut isbn: Option<&str> = None;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--mode" => {
+                mode = args
+                    .get(i + 1)
+                    .map(String::as_str)
+                    .ok_or("--mode needs a value")?;
+                i += 2;
+            }
+            "--out" => {
+                out = Some(args.get(i + 1).cloned().ok_or("--out needs a value")?);
+                i += 2;
+            }
+            "--isbn" => {
+                isbn = Some(
+                    args.get(i + 1)
+                        .map(String::as_str)
+                        .ok_or("--isbn needs a value")?,
+                );
+                i += 2;
+            }
+            other => {
+                positional.push(other);
+                i += 1;
+            }
+        }
+    }
+    let mode = rust_book::cover::Mode::parse(mode)
+        .ok_or_else(|| format!("unknown --mode (pb|hc|dj): {mode}"))?;
+    let label = positional.first().copied().unwrap_or("6x9");
+    let table = if mode == rust_book::cover::Mode::CaseLaminate {
+        rust_book::standards::HARDCOVER_TRIMS
+    } else {
+        rust_book::standards::PAPERBACK_TRIMS
+    };
+    let trim = rust_book::standards::find_trim(table, label)
+        .ok_or_else(|| format!("unknown trim {label} for mode {}", mode.tag()))?;
+    let pages: u32 = positional
+        .get(1)
+        .map(|s| s.parse())
+        .transpose()
+        .map_err(|_| "PAGES must be a number")?
+        .unwrap_or(300);
+    let paper = match positional.get(2).copied().unwrap_or("white") {
+        "white" => rust_book::standards::Paper::White,
+        "cream" => rust_book::standards::Paper::Cream,
+        "ground" => rust_book::standards::Paper::Groundwood,
+        "premium" => rust_book::standards::Paper::PremiumColor,
+        other => {
+            return Err(format!(
+                "unknown paper: {other} (white|cream|ground|premium)"
+            ));
+        }
+    };
+
+    let tpl = rust_book::cover::template(trim, pages, paper, mode)?;
+    let svg = rust_book::cover::template_svg_with_isbn(&tpl, isbn);
+    let path =
+        out.unwrap_or_else(|| format!("build/cover_{}_{}_{}.svg", trim.label, pages, mode.tag()));
+    if let Some(parent) = Path::new(&path).parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    std::fs::write(&path, svg).map_err(|e| format!("write {path}: {e}"))?;
+    println!(
+        "  {} {}p {:?} · {:.4}x{:.4}in · spine {:.4}in",
+        trim.label, tpl.pages, paper, tpl.size.w, tpl.size.h, tpl.spine
+    );
+    Ok(path)
 }
 
 /// Start the local KDP EPUB previewer server. Bind only to loopback.
