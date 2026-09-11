@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 pub mod ai;
 pub mod barcode;
 pub mod cover;
+pub mod coverdoc;
 pub mod drafts;
 pub mod epub;
 pub mod kdp;

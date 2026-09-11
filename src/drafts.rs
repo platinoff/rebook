@@ -193,6 +193,20 @@ pub fn chapter_content(root: &Path, id: &str, number: u32) -> Option<String> {
     std::fs::read_to_string(draft_dir(root, id).join(file)).ok()
 }
 
+/// Save the draft's `cover.json` (Cover Studio document).
+pub fn save_cover(root: &Path, id: &str, json: &str) -> Result<(), String> {
+    let _ = load(root, id)?;
+    serde_json::from_str::<crate::coverdoc::CoverDoc>(json)
+        .map_err(|e| format!("bad cover.json: {e}"))?;
+    std::fs::write(draft_dir(root, id).join("cover.json"), json)
+        .map_err(|e| format!("write cover.json: {e}"))
+}
+
+/// Read the draft's `cover.json` if present.
+pub fn load_cover(root: &Path, id: &str) -> Option<String> {
+    std::fs::read_to_string(draft_dir(root, id).join("cover.json")).ok()
+}
+
 /// Write an asset file (html/svg/images) under `assets/`.
 pub fn save_asset(root: &Path, id: &str, name: &str, bytes: &[u8]) -> Result<(), String> {
     safe_asset_name(name)?;

@@ -45,6 +45,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/drafts/{id}/chapter/{num}", put(api_draft_put_chapter))
         .route("/api/drafts/{id}/promote", post(api_draft_promote))
+        .route(
+            "/api/drafts/{id}/cover",
+            get(api_draft_get_cover).put(api_draft_put_cover),
+        )
+        .route("/api/cover", post(api_cover))
         .route("/api/ai", post(api_ai))
         .fallback(viewer_fallback)
         .with_state(state)
@@ -316,6 +321,39 @@ struct AiIn {
     context: String,
 }
 
+/// `POST /api/cover` with a CoverDoc JSON → composed artwork SVG.
+async fn api_cover(Json(doc): Json<crate::coverdoc::CoverDoc>) -> Response {
+    match doc.render_svg() {
+        Ok(svg) => text_response(StatusCode::OK, "image/svg+xml", svg),
+        Err(e) => draft_err(e),
+    }
+}
+
+async fn api_draft_get_cover(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+) -> Response {
+    match crate::drafts::load_cover(&st.drafts_root, &id) {
+        Some(json) => text_response(StatusCode::OK, "application/json; charset=utf-8", json),
+        None => (StatusCode::NOT_FOUND, "no cover.json for this draft").into_response(),
+    }
+}
+
+async fn api_draft_put_cover(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+    body: String,
+) -> Response {
+    match crate::drafts::save_cover(&st.drafts_root, &id, &body) {
+        Ok(()) => text_response(
+            StatusCode::OK,
+            "text/plain; charset=utf-8",
+            "saved".to_string(),
+        ),
+        Err(e) => draft_err(e),
+    }
+}
+
 /// OpenAI-compatible assist; 503 when REBOOK_AI_ENDPOINT is unset (offline-safe).
 async fn api_ai(Json(body): Json<AiIn>) -> Response {
     if !crate::ai::enabled() {
@@ -448,6 +486,20 @@ mod tests {
         .await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
         assert!(b.contains("unknown trim"));
+    }
+
+    #[tokio::test]
+    async fn cover_api_composes_artwork() {
+        let (s, body) = json_call(
+            router(fixture_state()),
+            "POST",
+            "/api/cover",
+            r##"{"mode":"ebook","trim":"6x9","pages":300,"paper":"white","bg_front":"#223344","bg_back":"#223344","title":{"text":"Hi <&>","x":0,"y":0,"pt":40,"color":"#fff","spine":false},"author":{"text":"by A","x":0,"y":0,"pt":18,"color":"#eee","spine":false}}"##,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(body.contains("viewBox=\"0 0 1600 2560\""));
+        assert!(body.contains("Hi &lt;&amp;&gt;"));
     }
 
     #[test]
