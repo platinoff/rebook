@@ -354,5 +354,5 @@ fn view(port: &str) -> Result<(), String> {
 
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| format!("Failed to start async runtime: {e}"))?;
-    rt.block_on(rust_book::viewer::serve(books, &addr))
+    rt.block_on(rust_book::web::serve_web(books, &addr))
 }

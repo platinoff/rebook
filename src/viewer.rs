@@ -7,9 +7,6 @@
 //! Rust-only, no new dependencies, works fully offline.
 use std::io::Read;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-
 use crate::{Book, ChapterMeta};
 
 /// Default bind address for the local preview server.
@@ -39,6 +36,12 @@ impl Epub {
             entries.push((f.name().to_string(), bytes));
         }
         Ok(Epub { entries })
+    }
+
+    /// Build an in-memory EPUB from raw entries (tests, generated books).
+    #[doc(hidden)]
+    pub fn from_entries(entries: Vec<(String, Vec<u8>)>) -> Epub {
+        Epub { entries }
     }
 
     /// Number of stored entries.
@@ -476,22 +479,6 @@ fn is_attr_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
 }
 
-/// HTTP/1.1 request as parsed from a client stream.
-struct Request {
-    method: String,
-    target: String,
-}
-
-fn parse_request_head(buf: &[u8]) -> Option<Request> {
-    let text = String::from_utf8_lossy(buf);
-    let mut lines = text.lines();
-    let line = lines.next()?;
-    let mut parts = line.split_whitespace();
-    let method = parts.next()?.to_string();
-    let target = parts.next()?.to_string();
-    Some(Request { method, target })
-}
-
 /// Render the page for a book index (`/`  or `/{id}/`).
 fn render_index(epub: &Epub, book: &Book, book_id: &str) -> String {
     let report = kdp_check(epub, book);
@@ -868,36 +855,6 @@ fn slug(title: &str) -> String {
     if s.is_empty() { "book".to_string() } else { s }
 }
 
-/// Run the local preview server until interrupted (Ctrl+C).
-pub async fn serve(books: Vec<LoadedBook>, addr: &str) -> Result<(), String> {
-    let listener = TcpListener::bind(addr)
-        .await
-        .map_err(|e| format!("Не вдалося слухати {addr}: {e}"))?;
-    println!("Просмоторщик EPUB запущено: http://{addr}/");
-    println!("Знайдено книг: {}", books.len());
-    for b in &books {
-        println!("  /{id} — {title}", id = b.id, title = b.book.title);
-    }
-    println!(
-        "KDP-перевірка: http://{addr}/{id}/check",
-        id = books.first().map(|b| b.id.clone()).unwrap_or_default()
-    );
-    println!("Зупинити — Ctrl+C.");
-
-    loop {
-        let (mut socket, _peer) = listener
-            .accept()
-            .await
-            .map_err(|e| format!("Помилка прийому: {e}"))?;
-        let books = books.clone();
-        tokio::spawn(async move {
-            if let Err(e) = handle(&mut socket, &books).await {
-                eprintln!("Помилка з'єднання: {e}");
-            }
-        });
-    }
-}
-
 /// The book selected by a request path prefix, falling back to the first.
 fn choose<'a>(books: &'a [LoadedBook], path: &'a str) -> (&'a LoadedBook, &'a str) {
     let mut rest = path;
@@ -917,56 +874,8 @@ fn choose<'a>(books: &'a [LoadedBook], path: &'a str) -> (&'a LoadedBook, &'a st
     (book, rest)
 }
 
-/// Read one HTTP request head and respond to the routed target.
-async fn handle(socket: &mut tokio::net::TcpStream, books: &[LoadedBook]) -> Result<(), String> {
-    let mut buf = [0u8; 8192];
-    let n = socket
-        .read(&mut buf)
-        .await
-        .map_err(|e| format!("read: {e}"))?;
-    if n == 0 {
-        return Ok(());
-    }
-    let req = parse_request_head(&buf[..n]).unwrap_or(Request {
-        method: "GET".to_string(),
-        target: "/".to_string(),
-    });
-
-    // This previewer is read-only: accept only GET/HEAD.
-    if req.method != "GET" && req.method != "HEAD" {
-        let resp =
-            "HTTP/1.1 405 Method Not Allowed\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
-        socket
-            .write_all(resp.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    // Path part before any query string.
-    let path = req.target.split('?').next().unwrap_or("/");
-
-    let (status, body, kind) = route(path, books);
-
-    let body_bytes = body.into_bytes();
-    let mut head = format!("HTTP/1.1 {status}\r\n");
-    head.push_str(&format!("content-type: {kind}\r\n"));
-    head.push_str(&format!("content-length: {}\r\n", body_bytes.len()));
-    head.push_str("cache-control: no-store\r\nconnection: close\r\n\r\n");
-
-    socket
-        .write_all(head.as_bytes())
-        .await
-        .map_err(|e| format!("write head: {e}"))?;
-    socket
-        .write_all(&body_bytes)
-        .await
-        .map_err(|e| format!("write body: {e}"))?;
-    Ok(())
-}
-
 /// Decide the HTTP reply for a path. Returns (status, body, mime).
-fn route(path: &str, books: &[LoadedBook]) -> (&'static str, String, &'static str) {
+pub(crate) fn route(path: &str, books: &[LoadedBook]) -> (&'static str, String, &'static str) {
     if path == "/" || path.is_empty() {
         if books.len() == 1 {
             let b = &books[0];
@@ -1151,14 +1060,6 @@ mod tests {
         assert!(raw_ampersand("a & b"));
         assert!(!raw_ampersand("a &amp; b"));
         assert!(!raw_ampersand("&lt;&gt;&quot;"));
-    }
-
-    #[test]
-    fn parse_request_head_parses_method_and_target() {
-        let req = parse_request_head(b"GET /chapter/1 HTTP/1.1\r\nhost: x");
-        let req = req.unwrap();
-        assert_eq!(req.method, "GET");
-        assert_eq!(req.target, "/chapter/1");
     }
 
     #[test]

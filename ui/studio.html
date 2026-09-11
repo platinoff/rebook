@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Studio — rebook</title>
+<link rel="stylesheet" href="/styles.css"/>
+<style>
+ .grid{display:grid;grid-template-columns:260px 1fr;gap:1.2em;}
+ .col{background:var(--panel,#1b1e27);border:1px solid #2f3542;border-radius:10px;padding:1em;}
+ textarea{width:100%;min-height:60vh;background:#12141a;color:#e6e6e6;border:1px solid #2f3542;border-radius:8px;padding:.8em;font-family:monospace;font-size:14px;}
+ li{margin:.35em 0;}
+ .badge{display:inline-block;padding:.15em .6em;border:1px solid #7aa2f7;border-radius:6px;color:#7aa2f7;font-size:.85em;}
+</style>
+</head>
+<body>
+<div id="studio-app">
+<header>
+<h1>Studio — чернетки</h1>
+<p class="author"><a href="/">← Полиця</a> · <a href="/cover">Cover Studio</a> ·
+<span class="badge">RB-6 у черзі: автозбереження /api/drafts</span></p>
+</header>
+<section class="grid">
+ <div class="col"><h2>Книги на поличці</h2><ul id="books">…</ul></div>
+ <div class="col">
+  <h2>Чернетка розділу (локально)</h2>
+  <p style="color:#9aa0ac">Пишете markdown — pre-view нижче. Збереження в файл зʼявиться з RB-6.</p>
+  <textarea id="md" placeholder="## Заголовок&#10;&#10;текст…"></textarea>
+  <pre id="preview" style="white-space:pre-wrap;border-top:1px dashed #2f3542;margin-top:.6em;"></pre>
+ </div>
+</section>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+async function boot(){
+  try{
+    const books=await (await fetch('/api/books')).json();
+    $('#books').innerHTML=books.map(b=>
+      '<li><a href="/'+encodeURIComponent(b.id)+'/">'+b.title+'</a>'+
+      ' <span style="color:#9aa0ac">· '+b.chapters+' р. · '+b.language+'</span></li>').join('')||
+      '<li>немає книг — <code>cargo run -- build-epub</code></li>';
+  }catch(e){$('#books').textContent='помилка: '+e;}
+}
+const md=$('#md');
+function esc(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function render(t){
+  return t.split(/\n{2,}/).map(p=>{
+    if(p.startsWith('### '))return '<h3>'+esc(p.slice(4))+'</h3>';
+    if(p.startsWith('## '))return '<h2>'+esc(p.slice(3))+'</h2>';
+    return '<p>'+esc(p)+'</p>';
+  }).join('');
+}
+md.addEventListener('input',()=>{$('#preview').innerHTML=render(md.value);
+  try{localStorage.setItem('rebook.draft',md.value);}catch(e){}});
+try{md.value=localStorage.getItem('rebook.draft')||'';$('#preview').innerHTML=render(md.value);}catch(e){}
+boot();
+</script>
+</body>
+</html>

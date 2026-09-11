@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Cover Studio — rebook</title>
+<link rel="stylesheet" href="/styles.css"/>
+<style>
+ form{display:flex;flex-wrap:wrap;gap:.6em;align-items:end;background:#1b1e27;border:1px solid #2f3542;border-radius:10px;padding:1em;margin:1em 0;}
+ label{display:flex;flex-direction:column;font-size:.85em;color:#9aa0ac;}
+ input,select{background:#12141a;color:#e6e6e6;border:1px solid #2f3542;border-radius:6px;padding:.4em .6em;font:inherit;}
+ button{background:#7aa2f7;color:#12141a;border:0;border-radius:6px;padding:.55em 1.2em;font-weight:bold;cursor:pointer;}
+ #canvas{background:#fff;border-radius:8px;overflow:auto;max-width:100%;}
+ #canvas svg{max-width:100%;height:auto;display:block;}
+ .meta{color:#9aa0ac;font-size:.9em;}
+</style>
+</head>
+<body>
+<div id="cover-app">
+<header>
+<h1>Cover Studio — шаблони обкладинок</h1>
+<p class="author"><a href="/">← Полиця</a> · <a href="/studio">Studio</a> ·
+<span style="color:#9aa0ac">Шари та авто-лейаут — RB-9; поки що генератор точних KDP-шаблонів.</span></p>
+</header>
+<form id="f">
+ <label>Trim<select id="trim"></select></label>
+ <label>Сторінок<input id="pages" type="number" value="300" min="24" max="828" step="2"/></label>
+ <label>Папір<select id="paper">
+  <option value="white">white</option><option value="cream">cream</option>
+  <option value="ground">groundwood</option><option value="premium">premium color</option>
+ </select></label>
+ <label>Тип<select id="mode">
+  <option value="pb">paperback (KDP)</option>
+  <option value="hc">hardcover (case laminate)</option>
+  <option value="dj">dust jacket (Ingram)</option>
+ </select></label>
+ <label>ISBN (штрих-код)<input id="isbn" placeholder="978-…-…-…-x" size="20"/></label>
+ <button type="submit">Згенерувати</button>
+ <a id="dl" hidden download="cover-template.svg"><button type="button">SVG ↓</button></a>
+</form>
+<p class="meta" id="meta"></p>
+<div id="canvas"></div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const TRIMS={pb:["5x8","5.06x7.81","5.25x8","5.5x8.5","6x9","6.14x9.21","6.69x9.61","7x10","7.44x9.69","7.5x9.25","8x10","8.25x6","8.25x8.25","8.27x11.69","8.5x8.5","8.5x11"],
+ hc:["5.5x8.5","6x9","6.14x9.21","7x10","8.25x11"], dj:["5x8","5.5x8.5","6x9","7x10"]};
+function fillTrims(){const m=$('#mode').value;$('trim').innerHTML=(TRIMS[m]||TRIMS.pb).map(t=>'<option'+(t=='6x9'?' selected':'')+'>'+t+'</option>').join('');}
+$('#mode').addEventListener('change',fillTrims);fillTrims();
+$('#f').addEventListener('submit',async ev=>{
+ ev.preventDefault();
+ const p=new URLSearchParams({trim:$('#trim').value,pages:$('#pages').value,paper:$('#paper').value,mode:$('#mode').value});
+ if($('#isbn').value.trim())p.set('isbn',$('#isbn').value.trim());
+ const r=await fetch('/api/cover-template?'+p);
+ const svg=await r.text();
+ if(!r.ok){$('#canvas').textContent=svg;$('#meta').textContent='';return;}
+ $('#canvas').innerHTML=svg;
+ const m=svg.match(/([0-9.]+) x ([0-9.]+) in = (\d+) x (\d+) px/);
+ $('#meta').textContent=m?`${m[1]} × ${m[2]} дюймів = ${m[3]} × ${m[4]} px @300DPI`:`${p}`;
+ const dl=$('#dl');dl.hidden=false;
+ dl.href='data:image/svg+xml;utf8,'+encodeURIComponent(svg);
+ dl.firstChild.onclick=()=>{};
+});
+</script>
+</body>
+</html>

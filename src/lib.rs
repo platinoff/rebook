@@ -10,6 +10,7 @@ pub mod epub;
 pub mod kdp;
 pub mod standards;
 pub mod viewer;
+pub mod web;
 
 /// Chapter descriptor from `book.json` — points at the markdown file.
 #[derive(Debug, Clone, Deserialize)]
