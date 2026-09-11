@@ -118,17 +118,38 @@ function render(){
 $('#md').addEventListener('input',render);
 document.querySelectorAll('.ai').forEach(b=>b.onclick=async()=>{
  const mode=b.dataset.mode,ta=$('#md');
- $('#aistat').textContent='думаю…';
+ $('#aistat').textContent='думаю…';ta.disabled=true;
  try{
   const r=await fetch('/api/ai',{method:'POST',headers:{'content-type':'application/json'},
-   body:JSON.stringify({mode,prompt:mode=='continue'?'':'',context:ta.value})});
-  const t=await r.text();
-  if(!r.ok)throw new Error(t);
-  if(mode=='continue')ta.value=ta.value.replace(/\s*$/,'\n\n')+t.trim()+'\n';
-  else if(mode=='rewrite')ta.value=t.trim();
-  else ta.value+='\n\n<!-- AI '+mode+' -->\n'+t.trim()+'\n';
-  render();$('#aistat').textContent='ok';
+   body:JSON.stringify({mode,prompt:mode=='continue'?'':'',context:ta.value,stream:true})});
+  if(!r.ok)throw new Error(await r.text());
+  let acc='',buf='';
+  const rd=r.body.getReader(),dec=new TextDecoder();
+  const apply=()=>{
+   if(mode=='continue')ta.value=ta.value.replace(/\s*$/,'\n\n')+acc.trim()+'\n';
+   else if(mode=='rewrite')ta.value=acc.trim();
+   else ta.value+='\n\n<!-- AI '+mode+' -->\n'+acc.trim()+'\n';
+   render();
+  };
+  while(true){
+   const {done,value}=await rd.read();if(done)break;
+   buf+=dec.decode(value,{stream:true});
+   let i;
+   while((i=buf.indexOf('\n\n'))>=0){
+    const frame=buf.slice(0,i);buf=buf.slice(i+2);
+    let ev='',data='';
+    for(const ln of frame.split('\n')){
+     if(ln.startsWith('event:'))ev=ln.slice(6).trim();
+     else if(ln.startsWith('data:'))data+=ln.slice(5).trim();
+    }
+    if(ev=='error'){$('#aistat').textContent='AI: '+(JSON.parse(data)||data);continue;}
+    try{acc+=JSON.parse(data);}catch(e){acc+=data;}
+    $('#aistat').textContent='…'+acc.length+' symb';
+   }
+  }
+  apply();$('#aistat').textContent='ok';
  }catch(e){$('#aistat').textContent=e.message.slice(0,80);}
+ ta.disabled=false;
 });
 boot();
 </script>

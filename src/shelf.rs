@@ -351,22 +351,20 @@ pub fn verify_package(pkg_dir: &Path) -> Result<Vec<crate::viewer::KdpCheckItem>
     push("print:trim", trim_ok, format!("{} ({})", m.trim, m.format));
 
     let (min, max) = if is_hc { (76, 550) } else { (24, 828) };
-    let range = m.pages % 2 == 0 && (min..=max).contains(&m.pages);
+    let range = m.pages.is_multiple_of(2) && (min..=max).contains(&m.pages);
     push(
         "print:pages-range",
         range,
         format!("{} even in {min}–{max}", m.pages),
     );
 
-    if !is_hc {
-        if let Some(t) = find_trim(PAPERBACK_TRIMS, &m.trim) {
-            let ok = crate::standards::paperback_pages_ok(t, m.pages, paper);
-            push(
-                "print:trim-paper-pages",
-                ok,
-                format!("{}/{:?}", m.trim, paper),
-            );
-        }
+    if !is_hc && let Some(t) = find_trim(PAPERBACK_TRIMS, &m.trim) {
+        let ok = crate::standards::paperback_pages_ok(t, m.pages, paper);
+        push(
+            "print:trim-paper-pages",
+            ok,
+            format!("{}/{:?}", m.trim, paper),
+        );
     }
     if m.pages_estimated {
         push(
@@ -438,23 +436,23 @@ pub fn verify_package(pkg_dir: &Path) -> Result<Vec<crate::viewer::KdpCheckItem>
     );
 
     // cover.json nearby? spine text must respect the pages rule.
-    if let Ok(cj) = std::fs::read_to_string(pkg_dir.join("cover.json")) {
-        if let Ok(doc) = serde_json::from_str::<crate::coverdoc::CoverDoc>(&cj) {
-            let ok = doc.spine_title.is_none() || spine_text_allowed(m.pages);
-            push(
-                "print:spine-text-rule",
-                ok,
-                format!(
-                    "pages {} >79 ⇒ spine {}",
-                    m.pages,
-                    if doc.spine_title.is_some() {
-                        "text"
-                    } else {
-                        "plain"
-                    }
-                ),
-            );
-        }
+    if let Ok(cj) = std::fs::read_to_string(pkg_dir.join("cover.json"))
+        && let Ok(doc) = serde_json::from_str::<crate::coverdoc::CoverDoc>(&cj)
+    {
+        let ok = doc.spine_title.is_none() || spine_text_allowed(m.pages);
+        push(
+            "print:spine-text-rule",
+            ok,
+            format!(
+                "pages {} >79 ⇒ spine {}",
+                m.pages,
+                if doc.spine_title.is_some() {
+                    "text"
+                } else {
+                    "plain"
+                }
+            ),
+        );
     }
     Ok(items)
 }

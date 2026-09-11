@@ -351,6 +351,8 @@ struct AiIn {
     prompt: String,
     #[serde(default)]
     context: String,
+    #[serde(default)]
+    stream: bool,
 }
 
 /// `POST /api/cover` with a CoverDoc JSON → composed artwork SVG.
@@ -406,10 +408,31 @@ async fn api_ai(Json(body): Json<AiIn>) -> Response {
     let endpoint = std::env::var("REBOOK_AI_ENDPOINT").unwrap_or_default();
     let model = std::env::var("REBOOK_AI_MODEL").unwrap_or_else(|_| "local".to_string());
     let payload = crate::ai::chat_body(&body.mode, &body.prompt, &body.context, &model);
+    if body.stream {
+        return sse_assist(endpoint, payload);
+    }
     match crate::ai::complete(&endpoint, &payload).await {
         Ok(text) => text_response(StatusCode::OK, "text/plain; charset=utf-8", text),
         Err(e) => text_response(StatusCode::BAD_GATEWAY, "text/plain; charset=utf-8", e),
     }
+}
+
+/// RB-12: true incremental deltas as Server-Sent Events (`data:` = JSON
+/// string per delta; `event: error` carries upstream failures).
+fn sse_assist(endpoint: String, payload: serde_json::Value) -> Response {
+    use axum::response::sse::{Event, Sse};
+    use tokio_stream::StreamExt;
+    use tokio_stream::wrappers::ReceiverStream;
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, String>>(64);
+    tokio::spawn(async move {
+        crate::ai::stream_to(&endpoint, &payload, &tx).await;
+    });
+    let stream = ReceiverStream::new(rx).map(|item| match item {
+        Ok(delta) => Event::default().json_data(delta),
+        Err(e) => Event::default().event("error").json_data(e),
+    });
+    Sse::new(stream).into_response()
 }
 
 /// Default bind helper for callers that want the canonical address.

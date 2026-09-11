@@ -154,54 +154,50 @@ impl CoverDoc {
     /// [`spine_text_allowed`].
     pub fn auto_layout(&mut self) {
         let pages = even_pages(self.pages);
-        let pages_for_layout = pages;
-        match self.canvas_in() {
-            Ok((w, h)) => {
-                if self.mode == "ebook" {
-                    self.title.x = w / 2.0;
-                    self.title.y = h * 0.30;
-                    self.author.x = w / 2.0;
-                    self.author.y = h * 0.52;
-                    return;
-                }
-                let (mode, _) = self
-                    .parse_mode()
-                    .unwrap_or((Mode::Paperback, PAPERBACK_TRIMS));
-                let edge = if mode == Mode::CaseLaminate {
-                    HC_WRAP_IN
-                } else {
-                    BLEED_IN
-                };
-                let table = if mode == Mode::CaseLaminate {
-                    HARDCOVER_TRIMS
-                } else {
-                    PAPERBACK_TRIMS
-                };
-                let trim = match find_trim(table, &self.trim) {
-                    Some(t) => *t,
-                    None => return,
-                };
-                let spine = self.spine_width_in();
-                // front panel spans the right-hand side.
-                let front_x = w - edge - trim.w / 2.0;
-                self.title.x = front_x;
-                self.title.y = edge + trim.h * 0.32;
-                self.author.x = front_x;
-                self.author.y = edge + trim.h * 0.86;
-                if spine_text_allowed(pages_for_layout) {
-                    self.spine_title = Some(TextLayer {
-                        text: self.title.text.clone(),
-                        x: edge + trim.w + spine / 2.0,
-                        y: h / 2.0,
-                        pt: (spine * 72.0 * 0.32).min(14.0).max(6.0),
-                        color: self.title.color.clone(),
-                        spine: true,
-                    });
-                } else {
-                    self.spine_title = None;
-                }
+        if let Ok((w, h)) = self.canvas_in() {
+            if self.mode == "ebook" {
+                self.title.x = w / 2.0;
+                self.title.y = h * 0.30;
+                self.author.x = w / 2.0;
+                self.author.y = h * 0.52;
+                return;
             }
-            Err(_) => {}
+            let (mode, _) = self
+                .parse_mode()
+                .unwrap_or((Mode::Paperback, PAPERBACK_TRIMS));
+            let edge = if mode == Mode::CaseLaminate {
+                HC_WRAP_IN
+            } else {
+                BLEED_IN
+            };
+            let table = if mode == Mode::CaseLaminate {
+                HARDCOVER_TRIMS
+            } else {
+                PAPERBACK_TRIMS
+            };
+            let trim = match find_trim(table, &self.trim) {
+                Some(t) => *t,
+                None => return,
+            };
+            let spine = self.spine_width_in();
+            // front panel spans the right-hand side.
+            let front_x = w - edge - trim.w / 2.0;
+            self.title.x = front_x;
+            self.title.y = edge + trim.h * 0.32;
+            self.author.x = front_x;
+            self.author.y = edge + trim.h * 0.86;
+            if spine_text_allowed(pages) {
+                self.spine_title = Some(TextLayer {
+                    text: self.title.text.clone(),
+                    x: edge + trim.w + spine / 2.0,
+                    y: h / 2.0,
+                    pt: (spine * 72.0 * 0.32).clamp(6.0, 14.0),
+                    color: self.title.color.clone(),
+                    spine: true,
+                });
+            } else {
+                self.spine_title = None;
+            }
         }
     }
 
