@@ -11,6 +11,8 @@
   `cargo run -- build-epub`.
 - **Kit registration**: row in
   [`S:/rust/GSV/docs/gsv/PRODUCTS.md`](../../GSV/docs/gsv/PRODUCTS.md).
-- **Latest work**: `a8774d5` docs — Support/Donate section (GitHub Sponsors + Solana).
+- **Latest work**: dep refresh — `zip` 0.5→**8.6** (API-rewrite: `FileOptions<'_, ()>`
+  annotations in `src/epub.rs`), `tokio` declared 1.53; `en/` (live English book
+  content) gitignored per local-content policy; 26 tests + `build-epub`/`check` green.
 - **Tests**: `cargo fmt -- --check` → `cargo clippy --all-targets` → `cargo test`.
 - **NEXT pointer**: [`NEXT_SESSION_PROMPT.md`](./NEXT_SESSION_PROMPT.md).

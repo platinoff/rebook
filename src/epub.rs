@@ -91,7 +91,8 @@ pub fn generate_epub(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> 
 
     // 1. mimetype must be the first entry, stored (uncompressed).
     {
-        let options = FileOptions::default().compression_method(CompressionMethod::Stored);
+        let options: FileOptions<'_, ()> =
+            FileOptions::default().compression_method(CompressionMethod::Stored);
         writer
             .start_file("mimetype", options)
             .map_err(|e| format!("Failed to write mimetype entry: {}", e))?;
@@ -138,7 +139,8 @@ fn write_text_entry<W: Write + Seek>(
     name: &str,
     content: &str,
 ) -> Result<(), String> {
-    let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+    let options: FileOptions<'_, ()> =
+        FileOptions::default().compression_method(CompressionMethod::Deflated);
     writer
         .start_file(name, options)
         .map_err(|e| format!("Failed to start entry {}: {}", name, e))?;
@@ -154,7 +156,8 @@ fn write_binary_entry<W: Write + Seek>(
     name: &str,
     bytes: &[u8],
 ) -> Result<(), String> {
-    let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+    let options: FileOptions<'_, ()> =
+        FileOptions::default().compression_method(CompressionMethod::Deflated);
     writer
         .start_file(name, options)
         .map_err(|e| format!("Failed to start entry {}: {}", name, e))?;
