@@ -1,11 +1,12 @@
 //! Book metadata, chapter loading, and organization for
 //! "Rust перед сном" (14 chapters, ~8000 words each).
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub mod barcode;
 pub mod cover;
+pub mod drafts;
 pub mod epub;
 pub mod kdp;
 pub mod standards;
@@ -13,7 +14,7 @@ pub mod viewer;
 pub mod web;
 
 /// Chapter descriptor from `book.json` — points at the markdown file.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChapterMeta {
     pub number: u32,
     pub title: String,

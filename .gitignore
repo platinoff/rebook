@@ -8,6 +8,9 @@
 /chapters/
 /en/
 
+# Studio/Shelf workspace (drafts + built products) — author content, local only.
+/workspace/
+
 # Book outputs — never track compiled/exported book artifacts
 *.epub
 *.azw3

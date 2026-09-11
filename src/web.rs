@@ -8,21 +8,23 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
+use axum::extract::{Path as AxPath, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::get;
-use axum::{Router, serve};
+use axum::routing::{get, post, put};
+use axum::{Json, Router, serve};
 use tokio::net::TcpListener;
 
 use crate::cover::{Mode, template, template_svg_with_isbn};
 use crate::standards::{HARDCOVER_TRIMS, PAPERBACK_TRIMS, Paper, find_trim};
 use crate::viewer::{DEFAULT_ADDR, LoadedBook, route};
 
-/// Shared server state: every book discovered on disk.
+/// Shared server state: every book discovered on disk + the drafts root.
 pub struct AppState {
     /// Books on the shelf.
     pub books: Vec<LoadedBook>,
+    /// `workspace/drafts` directory (Studio area).
+    pub drafts_root: std::path::PathBuf,
 }
 
 const STUDIO_HTML: &str = include_str!("../ui/studio.html");
@@ -36,13 +38,21 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/cover", get(cover_page))
         .route("/api/books", get(api_books))
         .route("/api/cover-template", get(api_cover_template))
+        .route("/api/drafts", get(api_drafts_list).post(api_drafts_create))
+        .route(
+            "/api/drafts/{id}",
+            get(api_draft_get).delete(api_draft_delete),
+        )
+        .route("/api/drafts/{id}/chapter/{num}", put(api_draft_put_chapter))
+        .route("/api/drafts/{id}/promote", post(api_draft_promote))
         .fallback(viewer_fallback)
         .with_state(state)
 }
 
 /// Run the previewer/service until the process exits. Bind only to loopback.
 pub async fn serve_web(books: Vec<LoadedBook>, addr: &str) -> Result<(), String> {
-    let state = Arc::new(AppState { books });
+    let drafts_root = std::path::PathBuf::from("workspace/drafts");
+    let state = Arc::new(AppState { books, drafts_root });
     println!("rebook web service: http://{addr}/");
     println!("  / — полиця/читалка · /studio — чернетки · /cover — обкладинки");
     for b in &state.books {
@@ -172,6 +182,125 @@ fn json_esc(s: &str) -> String {
         .replace('\n', "\\n")
 }
 
+/// Body for `POST /api/drafts`.
+#[derive(serde::Deserialize)]
+struct DraftIn {
+    title: String,
+    #[serde(default)]
+    author: String,
+    #[serde(default)]
+    language: String,
+}
+
+/// Body for `PUT /api/drafts/{id}/chapter/{num}`.
+#[derive(serde::Deserialize)]
+struct ChapterIn {
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    content: String,
+    #[serde(default)]
+    ext: String,
+}
+
+fn draft_err(e: String) -> Response {
+    text_response(StatusCode::BAD_REQUEST, "text/plain; charset=utf-8", e)
+}
+
+async fn api_drafts_list(State(st): State<Arc<AppState>>) -> Response {
+    match crate::drafts::list(&st.drafts_root) {
+        Ok(items) => {
+            let body = serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string());
+            text_response(StatusCode::OK, "application/json; charset=utf-8", body)
+        }
+        Err(e) => draft_err(e),
+    }
+}
+
+async fn api_drafts_create(State(st): State<Arc<AppState>>, Json(body): Json<DraftIn>) -> Response {
+    match crate::drafts::create(&st.drafts_root, &body.title, &body.author, &body.language) {
+        Ok(meta) => (
+            StatusCode::CREATED,
+            [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+            meta.to_json(),
+        )
+            .into_response(),
+        Err(e) => draft_err(e),
+    }
+}
+
+async fn api_draft_get(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+) -> Response {
+    let meta = match crate::drafts::load(&st.drafts_root, &id) {
+        Ok(m) => m,
+        Err(e) => return draft_err(e),
+    };
+    let mut parts: Vec<String> = Vec::new();
+    for c in &meta.chapters {
+        let content =
+            crate::drafts::chapter_content(&st.drafts_root, &id, c.number).unwrap_or_default();
+        parts.push(format!(
+            "{{\"number\":{},\"title\":\"{}\",\"file\":\"{}\",\"content\":\"{}\"}}",
+            c.number,
+            json_esc(&c.title),
+            json_esc(&c.file),
+            json_esc(&content)
+        ));
+    }
+    let body = format!(
+        "{{\"meta\":{},\"chapters\":[{}]}}",
+        meta.to_json(),
+        parts.join(",")
+    );
+    text_response(StatusCode::OK, "application/json; charset=utf-8", body)
+}
+
+async fn api_draft_put_chapter(
+    State(st): State<Arc<AppState>>,
+    AxPath((id, num)): AxPath<(String, u32)>,
+    Json(body): Json<ChapterIn>,
+) -> Response {
+    let ext = if body.ext.is_empty() {
+        "md"
+    } else {
+        body.ext.as_str()
+    };
+    match crate::drafts::save_chapter(&st.drafts_root, &id, num, &body.title, &body.content, ext) {
+        Ok(meta) => text_response(
+            StatusCode::OK,
+            "application/json; charset=utf-8",
+            meta.to_json(),
+        ),
+        Err(e) => draft_err(e),
+    }
+}
+
+async fn api_draft_promote(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+) -> Response {
+    match crate::drafts::promote(&st.drafts_root, &id) {
+        Ok(path) => text_response(
+            StatusCode::OK,
+            "text/plain; charset=utf-8",
+            path.to_string_lossy().into_owned(),
+        ),
+        Err(e) => draft_err(e),
+    }
+}
+
+async fn api_draft_delete(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+) -> Response {
+    match crate::drafts::delete(&st.drafts_root, &id) {
+        Ok(()) => text_response(StatusCode::OK, "text/plain; charset=utf-8", "deleted".to_string()),
+        Err(e) => draft_err(e),
+    }
+}
+
 /// Default bind helper for callers that want the canonical address.
 pub fn default_addr() -> String {
     DEFAULT_ADDR.to_string()
@@ -213,6 +342,9 @@ mod tests {
                 book,
                 epub,
             }],
+            drafts_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("target")
+                .join("web-drafts"),
         })
     }
 
@@ -282,5 +414,66 @@ mod tests {
         let q = HashMap::new();
         let svg = build_template_from_query(&q).unwrap();
         assert!(svg.contains("6x9 300p"));
+    }
+
+    async fn json_call(
+        app: Router,
+        method: &'static str,
+        uri: &str,
+        body: &str,
+    ) -> (StatusCode, String) {
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), 4_000_000)
+            .await
+            .unwrap();
+        (status, String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    #[tokio::test]
+    async fn drafts_roundtrip_over_http() {
+        let st = fixture_state();
+        let _ = std::fs::remove_dir_all(&st.drafts_root);
+        let (s, body) = json_call(
+            router(st.clone()),
+            "POST",
+            "/api/drafts",
+            r#"{"title":"API Draft","author":"A","language":"en"}"#,
+        )
+        .await;
+        assert_eq!(s, StatusCode::CREATED);
+        assert!(body.contains("\"id\":\"api-draft\""));
+        let (s, body) = json_call(
+            router(st.clone()),
+            "PUT",
+            "/api/drafts/api-draft/chapter/1",
+            r#"{"title":"One","content":"Hello chapter text"}"#,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(body.contains("ch01.md"));
+        let (s, body) = get(router(st.clone()), "/api/drafts/api-draft").await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(body.contains("Hello chapter text"));
+        let (s, body) = json_call(
+            router(st.clone()),
+            "POST",
+            "/api/drafts/api-draft/promote",
+            "",
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(body.ends_with("api-draft.epub"));
+        assert!(std::path::Path::new(body.trim_end()).exists());
     }
 }

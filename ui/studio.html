@@ -6,11 +6,16 @@
 <title>Studio — rebook</title>
 <link rel="stylesheet" href="/styles.css"/>
 <style>
- .grid{display:grid;grid-template-columns:260px 1fr;gap:1.2em;}
- .col{background:var(--panel,#1b1e27);border:1px solid #2f3542;border-radius:10px;padding:1em;}
- textarea{width:100%;min-height:60vh;background:#12141a;color:#e6e6e6;border:1px solid #2f3542;border-radius:8px;padding:.8em;font-family:monospace;font-size:14px;}
+ .grid{display:grid;grid-template-columns:280px 1fr;gap:1.2em;}
+ .col{background:#1b1e27;border:1px solid #2f3542;border-radius:10px;padding:1em;}
+ textarea{width:100%;min-height:56vh;background:#12141a;color:#e6e6e6;border:1px solid #2f3542;border-radius:8px;padding:.8em;font-family:monospace;font-size:14px;}
  li{margin:.35em 0;}
- .badge{display:inline-block;padding:.15em .6em;border:1px solid #7aa2f7;border-radius:6px;color:#7aa2f7;font-size:.85em;}
+ button{background:#7aa2f7;color:#12141a;border:0;border-radius:6px;padding:.45em 1em;font-weight:bold;cursor:pointer;margin:.2em .4em .2em 0;}
+ button.ghost{background:transparent;color:#7aa2f7;border:1px solid #7aa2f7;}
+ input,select{background:#12141a;color:#e6e6e6;border:1px solid #2f3542;border-radius:6px;padding:.4em .6em;font:inherit;}
+ .bar{display:flex;gap:.5em;align-items:center;margin-bottom:.6em;}
+ #status{color:#9aa0ac;font-size:.9em;min-height:1.2em;}
+ .saved{color:#3fb950;} .err{color:#f85149;}
 </style>
 </head>
 <body>
@@ -18,41 +23,90 @@
 <header>
 <h1>Studio — чернетки</h1>
 <p class="author"><a href="/">← Полиця</a> · <a href="/cover">Cover Studio</a> ·
-<span class="badge">RB-6 у черзі: автозбереження /api/drafts</span></p>
+чернетки зберігаються у <code>workspace/drafts/</code> (локально)</p>
 </header>
 <section class="grid">
- <div class="col"><h2>Книги на поличці</h2><ul id="books">…</ul></div>
  <div class="col">
-  <h2>Чернетка розділу (локально)</h2>
-  <p style="color:#9aa0ac">Пишете markdown — pre-view нижче. Збереження в файл зʼявиться з RB-6.</p>
-  <textarea id="md" placeholder="## Заголовок&#10;&#10;текст…"></textarea>
-  <pre id="preview" style="white-space:pre-wrap;border-top:1px dashed #2f3542;margin-top:.6em;"></pre>
+  <div class="bar"><button id="new">+ Нова чернетка</button><input id="newtitle" placeholder="Назва книги" size="16"/></div>
+  <ul id="drafts">…</ul>
+ </div>
+ <div class="col">
+  <div class="bar" id="editorbar" hidden>
+   <strong id="curTitle"></strong>
+   <select id="chapSel"></select>
+   <button id="addChap" class="ghost">+ розділ</button>
+   <button id="save">Зберегти (Ctrl+S)</button>
+   <button id="promote" class="ghost">Promote → EPUB</button>
+   <button id="del" class="ghost">✕</button>
+  </div>
+  <div id="editor" hidden>
+   <input id="chapTitle" placeholder="Заголовок розділу" style="width:100%;margin-bottom:.5em"/>
+   <textarea id="md" placeholder="## Заголовок&#10;&#10;текст…"></textarea>
+   <pre id="preview" style="white-space:pre-wrap;border-top:1px dashed #2f3542;margin-top:.6em;"></pre>
+  </div>
+  <p id="status"></p>
  </div>
 </section>
 </div>
 <script>
 const $=s=>document.querySelector(s);
+let drafts=[],cur=null,chap=null;
+async function j(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(await r.text());return r.json().catch(()=>({}));}
+function st(msg,ok){$('#status').textContent=msg;$('#status').className=ok===false?'err':'saved';}
 async function boot(){
-  try{
-    const books=await (await fetch('/api/books')).json();
-    $('#books').innerHTML=books.map(b=>
-      '<li><a href="/'+encodeURIComponent(b.id)+'/">'+b.title+'</a>'+
-      ' <span style="color:#9aa0ac">· '+b.chapters+' р. · '+b.language+'</span></li>').join('')||
-      '<li>немає книг — <code>cargo run -- build-epub</code></li>';
-  }catch(e){$('#books').textContent='помилка: '+e;}
+ drafts=await (await fetch('/api/drafts')).json();
+ $('#drafts').innerHTML=drafts.map(d=>
+  '<li><a href="#" data-id="'+d.id+'">'+d.title+'</a> <span style="color:#9aa0ac">· '+
+  d.chapters.length+' р. · '+d.language+'</span></li>').join('')||'<li>немає — створіть зліва</li>';
+ document.querySelectorAll('#drafts a').forEach(a=>a.onclick=e=>{e.preventDefault();open(a.dataset.id);});
 }
-const md=$('#md');
+$('#new').onclick=async()=>{
+ const t=$('#newtitle').value.trim();if(!t)return;
+ try{await j('/api/drafts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:t,language:'uk'})});
+  $('#newtitle').value='';await boot();open(t.toLowerCase().replace(/[^a-z0-9-]+/gi,' ').trim().replace(/ +/g,'-'));}
+ catch(e){st('помилка: '+e.message,false);}
+};
+async function open(id){
+ const doc=await j('/api/drafts/'+id);cur=doc.meta;
+ $('#editorbar').hidden=false;$('#editor').hidden=false;
+ $('#curTitle').textContent=cur.title+' ('+cur.language+')';
+ $('#chapSel').innerHTML=doc.chapters.map(c=>'<option value="'+c.number+'">'+c.number+'. '+c.title+'</option>').join('')
+   ||'<option value="1">1. —</option>';
+ doc.chapters.length?$('#chapSel').value=doc.chapters[0].number:0;
+ chap=doc.chapters;loadChap();
+}
+function loadChap(){
+ const n=+$('#chapSel').value;const c=(chap||[]).find(x=>x.number===n)||{title:'',content:''};
+ $('#chapTitle').value=c.title;$('#md').value=c.content;render();
+}
+$('#chapSel').onchange=loadChap;
+$('#addChap').onclick=()=>{chap.push({number:chap.length+1,title:'',content:''});
+ $('#chapSel').innerHTML=chap.map(c=>'<option value="'+c.number+'">'+c.number+'. '+(c.title||'…')+'</option>').join('');
+ $('#chapSel').value=chap.length;loadChap();};
+async function save(){
+ if(!cur)return;const n=+$('#chapSel').value;
+ try{await j('/api/drafts/'+cur.id+'/chapter/'+n,{method:'PUT',headers:{'content-type':'application/json'},
+   body:JSON.stringify({title:$('#chapTitle').value,content:$('#md').value})});
+  st('збережено workspace/drafts/'+cur.id+'/chapters/ch'+String(n).padStart(2,'0')+'.md',true);await boot();}
+ catch(e){st('помилка: '+e.message,false);}
+}
+$('#save').onclick=save;
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();save();}});
+$('#promote').onclick=async()=>{
+ try{await save();const p=await (await fetch('/api/drafts/'+cur.id+'/promote',{method:'POST'})).text();
+  if(!p.startsWith('draft')&&!p.includes('.epub'))throw new Error(p);
+  st('EPUB: '+p+' — дивись на /',true);}catch(e){st('promote: '+e.message,false);}
+};
+$('#del').onclick=async()=>{if(!cur||!confirm('Видалити чернетку?'))return;
+ await fetch('/api/drafts/'+cur.id,{method:'DELETE'});cur=null;$('#editorbar').hidden=true;$('#editor').hidden=true;await boot();};
 function esc(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
-function render(t){
-  return t.split(/\n{2,}/).map(p=>{
-    if(p.startsWith('### '))return '<h3>'+esc(p.slice(4))+'</h3>';
-    if(p.startsWith('## '))return '<h2>'+esc(p.slice(3))+'</h2>';
-    return '<p>'+esc(p)+'</p>';
-  }).join('');
+function render(){
+ $('#preview').innerHTML=$('#md').value.split(/\n{2,}/).map(p=>{
+  if(p.startsWith('### '))return '<h3>'+esc(p.slice(4))+'</h3>';
+  if(p.startsWith('## '))return '<h2>'+esc(p.slice(3))+'</h2>';
+  return '<p>'+esc(p)+'</p>';}).join('');
 }
-md.addEventListener('input',()=>{$('#preview').innerHTML=render(md.value);
-  try{localStorage.setItem('rebook.draft',md.value);}catch(e){}});
-try{md.value=localStorage.getItem('rebook.draft')||'';$('#preview').innerHTML=render(md.value);}catch(e){}
+$('#md').addEventListener('input',render);
 boot();
 </script>
 </body>

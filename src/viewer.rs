@@ -839,7 +839,7 @@ fn discover_one(
 }
 
 /// A filesystem-safe slug for a book title, used as a URL id.
-fn slug(title: &str) -> String {
+pub(crate) fn slug(title: &str) -> String {
     let mut s = String::new();
     let mut last_dash = false;
     for c in title.chars() {
