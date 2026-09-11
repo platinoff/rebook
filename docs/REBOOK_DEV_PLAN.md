@@ -118,3 +118,19 @@ rust_book (single portable exe)
 
 Order 1→10 is dependency-bound (3,4 need 2; 5 needs nothing but lands with 6;
 9 needs 3+4+5; 10 needs 2+8). No mid-drain push; one commit per band.
+
+## 4. Wave 2 (done 2026-09-11, bands 241–244)
+
+| RB | Scope | ✅ |
+|----|-------|----|
+| 11 | live shelf rescan + slug de-dup (AppState.root snapshot) | `ef03639` |
+| 12 | SSE streaming `/api/ai` (`stream_to`, studio typing UI) | `5975176` |
+| 13 | `/products` shelf UI: badges + gate status + zip/epub downloads | `aece872` |
+| 14 | PDF export research → [`PRINT_PDF_RESEARCH.md`](./PRINT_PDF_RESEARCH.md) | `b167b08` |
+
+## 5. Wave 3 (queued — owner crate gate first)
+
+RB-15 interior PDF (KDP RGB, genpdf) → RB-16 wrap-cover PDF (svg2pdf/printpdf)
+→ RB-17 IngramSpark PDF/X-CMYK. Crate pick required before implementation
+(`printpdf`/`genpdf`/`pdf-writer` — see research note); tickets on GSV board
+product `rebook`.
