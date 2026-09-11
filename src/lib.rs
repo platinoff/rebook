@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 pub mod epub;
 pub mod kdp;
+pub mod standards;
 pub mod viewer;
 
 /// Chapter descriptor from `book.json` — points at the markdown file.

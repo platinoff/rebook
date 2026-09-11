@@ -9,10 +9,13 @@
   `.cursor/rules/epub-kdp-guide.mdc`.
 - **Book sources**: `chapters/` + `book.json` (sample book); build:
   `cargo run -- build-epub`.
+- **Latest work**: band 233 started — wave-1 standardization research →
+  [`REBOOK_DEV_PLAN.md`](./REBOOK_DEV_PLAN.md) (KDP ebook/paperback/hardcover matrix,
+  Ingram/Lulu formulas, 10-band roadmap); `src/standards.rs` (RB-2): spine/cover/
+  gutter/trim/EAN-13 math + 10 tests.
+- **Dev plan / bands**: [`REBOOK_DEV_PLAN.md`](./REBOOK_DEV_PLAN.md) — canon for
+  formats & geometry; tickets on GSV board product `rebook` (RB-1…RB-10).
 - **Kit registration**: row in
   [`S:/rust/GSV/docs/gsv/PRODUCTS.md`](../../GSV/docs/gsv/PRODUCTS.md).
-- **Latest work**: dep refresh — `zip` 0.5→**8.6** (API-rewrite: `FileOptions<'_, ()>`
-  annotations in `src/epub.rs`), `tokio` declared 1.53; `en/` (live English book
-  content) gitignored per local-content policy; 26 tests + `build-epub`/`check` green.
 - **Tests**: `cargo fmt -- --check` → `cargo clippy --all-targets` → `cargo test`.
 - **NEXT pointer**: [`NEXT_SESSION_PROMPT.md`](./NEXT_SESSION_PROMPT.md).
