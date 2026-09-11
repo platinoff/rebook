@@ -19,12 +19,21 @@ use crate::cover::{Mode, template, template_svg_with_isbn};
 use crate::standards::{HARDCOVER_TRIMS, PAPERBACK_TRIMS, Paper, find_trim};
 use crate::viewer::{DEFAULT_ADDR, LoadedBook, route};
 
-/// Shared server state: every book discovered on disk + the drafts root.
+/// Shared server state: initial shelf snapshot + scan root for live rescan.
 pub struct AppState {
-    /// Books on the shelf.
+    /// Books discovered at startup (fallback when the root is unreadable).
     pub books: Vec<LoadedBook>,
+    /// Directory walked per request (live shelf).
+    pub root: std::path::PathBuf,
     /// `workspace/drafts` directory (Studio area).
     pub drafts_root: std::path::PathBuf,
+}
+
+impl AppState {
+    /// Fresh shelf snapshot: rescan the root, fall back to startup books.
+    pub fn snapshot(&self) -> Vec<LoadedBook> {
+        crate::viewer::discover_books(&self.root).unwrap_or_else(|_| self.books.clone())
+    }
 }
 
 const STUDIO_HTML: &str = include_str!("../ui/studio.html");
@@ -59,7 +68,11 @@ pub fn router(state: Arc<AppState>) -> Router {
 /// Run the previewer/service until the process exits. Bind only to loopback.
 pub async fn serve_web(books: Vec<LoadedBook>, addr: &str) -> Result<(), String> {
     let drafts_root = std::path::PathBuf::from("workspace/drafts");
-    let state = Arc::new(AppState { books, drafts_root });
+    let state = Arc::new(AppState {
+        books,
+        root: std::path::PathBuf::from("."),
+        drafts_root,
+    });
     println!("rebook web service: http://{addr}/");
     println!("  / — полиця/читалка · /studio — чернетки · /cover — обкладинки");
     for b in &state.books {
@@ -89,7 +102,7 @@ async fn cover_page() -> Html<&'static str> {
 
 async fn api_books(State(st): State<Arc<AppState>>) -> Response {
     let mut items = String::from("[");
-    for (i, b) in st.books.iter().enumerate() {
+    for (i, b) in st.snapshot().iter().enumerate() {
         if i > 0 {
             items.push(',');
         }
@@ -165,14 +178,15 @@ fn build_template_from_query(q: &HashMap<String, String>) -> Result<String, Stri
 
 async fn viewer_fallback(State(st): State<Arc<AppState>>, uri: axum::http::Uri) -> Response {
     let path = uri.path();
-    if st.books.is_empty() {
+    let books = st.snapshot();
+    if books.is_empty() {
         return (
             StatusCode::NOT_FOUND,
             "Не знайдено жодного *.epub — запустіть build-epub або покладіть файл у каталог.",
         )
             .into_response();
     }
-    let (status, body, mime) = route(path, &st.books);
+    let (status, body, mime) = route(path, &books);
     let code = status
         .split_whitespace()
         .next()
@@ -439,6 +453,9 @@ mod tests {
                 book,
                 epub,
             }],
+            root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("target")
+                .join("web-shelf-missing"),
             drafts_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("target")
                 .join("web-drafts"),
@@ -518,6 +535,99 @@ mod tests {
         assert_eq!(s, StatusCode::OK);
         assert!(body.contains("viewBox=\"0 0 1600 2560\""));
         assert!(body.contains("Hi &lt;&amp;&gt;"));
+    }
+
+    #[tokio::test]
+    async fn shelf_rescans_live() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("web-rescan");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let st = Arc::new(AppState {
+            books: vec![],
+            root: root.clone(),
+            drafts_root: root.join("drafts"),
+        });
+        let (s, body) = get(router(st.clone()), "/api/books").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(body, "[]");
+
+        // build a book into the shelf while the router is alive — no restart.
+        let book = Book {
+            title: "Late Arrival".to_string(),
+            author: "Z".to_string(),
+            edition: 1,
+            year: 2026,
+            format: "EPUB 3.2".to_string(),
+            language: "uk".to_string(),
+            chapters: vec![ChapterMeta {
+                number: 1,
+                title: "One".to_string(),
+                file: "c1.md".to_string(),
+            }],
+        };
+        let chapters = vec![crate::Chapter {
+            number: 1,
+            title: "One".to_string(),
+            content: "text".to_string(),
+        }];
+        let cfg = crate::epub::EpubConfig {
+            title: book.title.clone(),
+            author: book.author.clone(),
+            output_path: root.join("late.epub").to_string_lossy().into_owned(),
+            cover_image: None,
+            language: "uk".to_string(),
+        };
+        crate::epub::generate_epub(&cfg, &book, &chapters).unwrap();
+        let (s, body) = get(router(st.clone()), "/api/books").await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(body.contains("late-arrival"));
+        // fallback route serves the new book without restart too
+        let (s, _) = get(router(st.clone()), "/late-arrival/").await;
+        assert_eq!(s, StatusCode::OK);
+    }
+
+    #[test]
+    fn slug_dedup_same_title() {
+        // two epubs with identical titles → ids `same-book` and `same-book-2`.
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("dedup-shelf");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let book = Book {
+            title: "Same Book".to_string(),
+            author: "Q".to_string(),
+            edition: 1,
+            year: 2026,
+            format: "EPUB 3.2".to_string(),
+            language: "uk".to_string(),
+            chapters: vec![ChapterMeta {
+                number: 1,
+                title: "One".to_string(),
+                file: "c1.md".to_string(),
+            }],
+        };
+        let ch = vec![crate::Chapter {
+            number: 1,
+            title: "One".to_string(),
+            content: "x".to_string(),
+        }];
+        for name in ["a.epub", "b.epub"] {
+            let cfg = crate::epub::EpubConfig {
+                title: book.title.clone(),
+                author: book.author.clone(),
+                output_path: dir.join(name).to_string_lossy().into_owned(),
+                cover_image: None,
+                language: "uk".to_string(),
+            };
+            crate::epub::generate_epub(&cfg, &book, &ch).unwrap();
+        }
+        let books = crate::viewer::discover_books(&dir).unwrap();
+        assert_eq!(books.len(), 2);
+        assert_eq!(books[0].id, "same-book");
+        assert_eq!(books[1].id, "same-book-2");
     }
 
     #[test]

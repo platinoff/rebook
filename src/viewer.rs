@@ -798,6 +798,15 @@ pub fn discover_books(dir: &std::path::Path) -> Result<Vec<LoadedBook>, String> 
         }
     }
     out.sort_by(|a, b| a.book.title.cmp(&b.book.title));
+    // De-duplicate slugs: two books titled the same get `id`, `id-2`, `id-3`.
+    let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for b in &mut out {
+        let n = seen.entry(b.id.clone()).or_insert(0);
+        *n += 1;
+        if *n > 1 {
+            b.id = format!("{}-{n}", b.id);
+        }
+    }
     Ok(out)
 }
 
