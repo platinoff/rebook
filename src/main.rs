@@ -55,6 +55,10 @@ fn main() {
             Ok(path) => println!("✓ Template written: {path}"),
             Err(e) => eprintln!("Error: {}", e),
         },
+        "shelf" => match build_shelf() {
+            Ok(()) => {}
+            Err(e) => eprintln!("Error: {}", e),
+        },
         _ => {
             eprintln!("Unknown command: {}", args[1]);
             print_help();
@@ -112,6 +116,9 @@ fn print_help() {
     println!("  cover-template [TRIM] [PAGES] [white|cream|ground|premium]");
     println!("               [--mode pb|hc|dj] [--out FILE.svg] [--isbn ISBN]");
     println!("               Full-wrap print template SVG at 300 DPI (KDP/Ingram geometry)");
+    println!(
+        "  shelf      - Build all product formats (product.json targets: ebook/paperback/hardcover)"
+    );
     println!("  view       - Local KDP EPUB previewer server (http://127.0.0.1:8090/)");
     println!("  convert    - (deprecated) KDP accepts EPUB directly");
     println!("  kdp        - (deprecated) KDP accepts EPUB directly");
@@ -247,6 +254,41 @@ fn kdp_build(_azw3_path: &str) -> Result<(), String> {
          (build/rust_book.epub); there is no local AZW3 build step."
             .to_string(),
     )
+}
+
+/// Build every targeted product format for the resolved book project.
+fn build_shelf() -> Result<(), String> {
+    let proj = BookProject::resolve();
+    let book = rust_book::load_book(&proj.json)?;
+    let chapters = rust_book::load_chapters(&proj.base, &book)?;
+    let cfg_path = proj.label("product.json");
+    let cfg = if cfg_path.exists() {
+        let bytes = std::fs::read(&cfg_path).map_err(|e| format!("read product.json: {e}"))?;
+        serde_json::from_slice(&bytes).map_err(|e| format!("bad product.json: {e}"))?
+    } else {
+        println!(
+            "No product.json — default targets [ebook], trim 6x9, paper white, pages estimated."
+        );
+        rust_book::shelf::ProductConfig::default()
+    };
+    let paths = rust_book::shelf::build_product(&proj.base, &book, &chapters, &cfg)?;
+    println!(
+        "✓ Shelf built into {} (pages {}{})",
+        paths.dir.display(),
+        paths.pages,
+        if paths.pages_estimated {
+            " ESTIMATED"
+        } else {
+            ""
+        }
+    );
+    for p in [&paths.ebook, &paths.paperback, &paths.hardcover]
+        .into_iter()
+        .flatten()
+    {
+        println!("  {}", p.display());
+    }
+    Ok(())
 }
 
 /// Generate a full-wrap cover template SVG from the KDP/Ingram geometry.

@@ -7,9 +7,11 @@
 /book.json
 /chapters/
 /en/
+/product.json
 
 # Studio/Shelf workspace (drafts + built products) — author content, local only.
 /workspace/
+/products/
 
 # Book outputs — never track compiled/exported book artifacts
 *.epub

@@ -45,6 +45,15 @@ impl Mode {
             Mode::DustJacket => "dj",
         }
     }
+
+    /// Product-folder name for the Shelf area.
+    pub const fn dir_name(self) -> &'static str {
+        match self {
+            Mode::Paperback => "paperback",
+            Mode::CaseLaminate => "hardcover",
+            Mode::DustJacket => "jacket",
+        }
+    }
 }
 
 /// Dust-jacket flap depth, inches (Ingram FCG).

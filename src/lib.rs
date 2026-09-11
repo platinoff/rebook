@@ -10,6 +10,7 @@ pub mod cover;
 pub mod drafts;
 pub mod epub;
 pub mod kdp;
+pub mod shelf;
 pub mod standards;
 pub mod viewer;
 pub mod web;
