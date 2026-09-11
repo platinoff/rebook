@@ -9,8 +9,10 @@
   `.cursor/rules/epub-kdp-guide.mdc`.
 - **Book sources**: `chapters/` + `book.json` (sample book); build:
   `cargo run -- build-epub`.
-- **Latest work**: band 234 — `cover-template` CLI (full-wrap SVG 300 DPI, pb/hc/dj,
-  barcode zone; rebook `7ab79cf`). Earlier band 233 — wave-1 standardization research →
+- **Latest work**: bands 233–238 — RB-1…RB-8 done (plan+standards, cover-template,
+  EAN-13, axum shell `/studio /cover /api`, drafts+promote, AI assist `/api/ai`,
+  shelf packages). Remaining: RB-9 Cover Studio layers, RB-10 KDP gate v2
+  (see [`REBOOK_DEV_PLAN.md`](./REBOOK_DEV_PLAN.md) §3).
   [`REBOOK_DEV_PLAN.md`](./REBOOK_DEV_PLAN.md) (KDP ebook/paperback/hardcover matrix,
   Ingram/Lulu formulas, 10-band roadmap); `src/standards.rs` (RB-2): spine/cover/
   gutter/trim/EAN-13 math + 10 tests.
