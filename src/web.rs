@@ -72,6 +72,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(api_draft_get_cover).put(api_draft_put_cover),
         )
         .route("/api/cover", post(api_cover))
+        .route("/api/cover/dims", get(api_cover_dims))
         .route("/api/print/check/{slug}/{format}", get(api_print_check))
         .route("/api/ai", post(api_ai))
         .fallback(viewer_fallback)
@@ -455,6 +456,49 @@ async fn api_cover(Json(doc): Json<crate::coverdoc::CoverDoc>) -> Response {
     }
 }
 
+/// RB-27: geometry for the 3D mockup — spine/panel sizes in inches.
+async fn api_cover_dims(Query(q): Query<HashMap<String, String>>) -> Response {
+    let mode = q.get("mode").map(String::as_str).unwrap_or("hc");
+    let m = Mode::parse(mode).unwrap_or(Mode::CaseLaminate);
+    let table = if m == Mode::CaseLaminate {
+        HARDCOVER_TRIMS
+    } else {
+        PAPERBACK_TRIMS
+    };
+    let label = q.get("trim").map(String::as_str).unwrap_or("6x9");
+    let Some(t) = find_trim(table, label) else {
+        return draft_err(format!("unknown trim {label} for {mode}"));
+    };
+    let pages: u32 = q.get("pages").and_then(|s| s.parse().ok()).unwrap_or(300);
+    let paper = match q.get("paper").map(String::as_str).unwrap_or("white") {
+        "cream" => Paper::Cream,
+        "ground" => Paper::Groundwood,
+        "premium" => Paper::PremiumColor,
+        _ => Paper::White,
+    };
+    let (w, h) = match template(t, pages, paper, m) {
+        Ok(tpl) => (tpl.size.w, tpl.size.h),
+        Err(e) => return draft_err(e),
+    };
+    let spine = if m == Mode::CaseLaminate {
+        crate::standards::hardcover_spine_approx(pages, paper)
+    } else {
+        crate::standards::spine_width(pages, paper)
+    };
+    // book box = trim-sized faces; wrap canvas reported too
+    let body = format!(
+        "{{\"trim\":\"{}\",\"trim_w_in\":{},\"trim_h_in\":{},\"spine_in\":{:.6},\"wrap_w_in\":{:.4},\"wrap_h_in\":{:.4},\"pages\":{}}}",
+        t.label,
+        t.w,
+        t.h,
+        spine,
+        w,
+        h,
+        crate::standards::even_pages(pages)
+    );
+    text_response(StatusCode::OK, "application/json; charset=utf-8", body)
+}
+
 async fn api_draft_get_cover(
     State(st): State<Arc<AppState>>,
     AxPath((id,)): AxPath<(String,)>,
@@ -806,6 +850,22 @@ mod tests {
         assert_ne!(s, StatusCode::OK);
         let (s, _) = get(router(st.clone()), "/products").await;
         assert_eq!(s, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn cover_dims_api_for_mockup() {
+        let (s, b) = get(
+            router(fixture_state()),
+            "/api/cover/dims?mode=hc&trim=6x9&pages=200&paper=white",
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+        let v: serde_json::Value = serde_json::from_str(&b).unwrap();
+        assert_eq!(v["trim"], "6x9");
+        assert!((v["spine_in"].as_f64().unwrap() - (200.0 * 0.002252 + 0.06)).abs() < 1e-6);
+        assert_eq!(v["trim_w_in"], 6.0);
+        let (s, _) = get(router(fixture_state()), "/api/cover/dims?mode=hc&trim=5x8").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
     }
 
     #[test]
