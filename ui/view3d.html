@@ -20,8 +20,9 @@
  .btn{background:#7aa2f7;color:#0b1020;border:0;border-radius:8px;padding:.5em 1em;font-weight:700;cursor:pointer}
  .btn.ghost{background:transparent;color:#7aa2f7;border:1px solid #7aa2f7}
  #readout{color:#9aa0ac;font-size:.85em;align-self:center}
- #stage{perspective:1700px;height:64vh;min-height:430px;background:radial-gradient(1200px 520px at 50% 18%,#171b26,#0b0e14);border:1px solid #2f3542;border-radius:14px;overflow:hidden;position:relative;cursor:grab;touch-action:none}
- #stage.dragging{cursor:grabbing}
+  #stage{perspective:1700px;height:64vh;min-height:430px;background:radial-gradient(1200px 520px at 50% 18%,#171b26,#0b0e14);border:1px solid #2f3542;border-radius:14px;overflow:hidden;position:relative;cursor:grab;touch-action:none}
+  #stage.dragging{cursor:grabbing}
+  #stage:focus-visible{outline:2px solid #7aa2f7;outline-offset:-2px}
  #book3d{position:absolute;left:50%;top:50%;transform-style:preserve-3d}
  #hint{position:absolute;bottom:.6em;width:100%;text-align:center;color:#5f6775;margin:0;font-size:.85em}
  #warns{background:#161922;border:1px solid #2f3542;border-radius:12px;padding:.8em 1em;height:fit-content;max-height:78vh;overflow:auto}
@@ -46,7 +47,7 @@
    <button class="btn ghost" id="reset">скинути кут</button>
    <span id="readout"></span>
   </div>
-  <div id="stage"><div id="book3d"></div><p id="hint">тягни мишею — обертати · колесо — зум · галочка «накладки» вмикає bleed/safe/fold-гади</p></div>
+  <div id="stage"><div id="book3d"></div><p id="hint">тягни / палець — обертати · колесо / pinch — зум · Tab на сцену: ←→↑↓ кут, PgUp/PgDn зум, 0 — скинути · галочка «накладки» вмикає bleed/safe/fold-гади</p></div>
  </div>
  <aside id="warns"><h3>⚠ Preflight</h3><div class="w"><span class="muted">обери книгу — звіт KDP-перевірок з'явиться тут</span></div></aside>
 </div>
@@ -111,11 +112,26 @@ function stage(){
  const edge=face(d,h,'repeating-linear-gradient(90deg,#f4f1e8 0 2px,#c9c4b4 2px 4px)','','rotateY(90deg) translateZ('+(w/2)+'px)');
  b.innerHTML=front+back+spine+head+tail+edge;pose();}
 function pose(){$('#book3d').style.transform='rotateX('+rx+'deg) rotateY('+ry+'deg)';}
-(function(){const st=$('#stage');let drag=null;
- st.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY,ry,rx];st.classList.add('dragging');st.setPointerCapture(e.pointerId);});
- st.addEventListener('pointermove',e=>{if(!drag)return;ry=drag[2]+(e.clientX-drag[0])*.45;rx=Math.max(-85,Math.min(85,drag[3]-(e.clientY-drag[1])*.35));pose();});
- addEventListener('pointerup',()=>{drag=null;st.classList.remove('dragging');});
+/* RB-30: mouse + touchpad (ctrl+wheel/pinch) + keyboard (arrows/PgUp/PgDn/0) */
+(function(){const st=$('#stage');st.tabIndex=0;
+ const pts=new Map();let drag=null,lastDist=0;
+ st.addEventListener('pointerdown',e=>{st.focus();pts.set(e.pointerId,[e.clientX,e.clientY]);
+  if(pts.size===1){drag=[e.clientX,e.clientY,ry,rx];st.classList.add('dragging');st.setPointerCapture(e.pointerId);}
+  else if(pts.size===2){drag=null;st.classList.remove('dragging');const p=[...pts.values()];lastDist=Math.hypot(p[0][0]-p[1][0],p[0][1]-p[1][1]);}});
+ st.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;pts.set(e.pointerId,[e.clientX,e.clientY]);
+  if(pts.size>=2){const p=[...pts.values()];const d=Math.hypot(p[0][0]-p[1][0],p[0][1]-p[1][1]);
+   if(lastDist&&d){s3=Math.max(14,Math.min(120,s3*d/lastDist));stage();}lastDist=d;return;}
+  if(!drag)return;ry=drag[2]+(e.clientX-drag[0])*.45;rx=Math.max(-85,Math.min(85,drag[3]-(e.clientY-drag[1])*.35));pose();});
+ const up=e=>{pts.delete(e.pointerId);if(pts.size<2)lastDist=0;if(!pts.size){drag=null;st.classList.remove('dragging');}};
+ addEventListener('pointerup',up);addEventListener('pointercancel',up);
  st.addEventListener('wheel',e=>{e.preventDefault();s3=Math.max(14,Math.min(120,s3*(e.deltaY<0?1.08:.93)));stage();},{passive:false});
+ st.addEventListener('keydown',e=>{const k=e.key;
+  if(k==='ArrowLeft'){ry-=6;pose();}else if(k==='ArrowRight'){ry+=6;pose();}
+  else if(k==='ArrowUp'){rx=Math.max(-85,rx-5);pose();}else if(k==='ArrowDown'){rx=Math.min(85,rx+5);pose();}
+  else if(k==='PageUp'||k==='+'||k==='='){s3=Math.min(120,s3*1.1);stage();}
+  else if(k==='PageDown'||k==='-'||k==='_'){s3=Math.max(14,s3/1.1);stage();}
+  else if(k==='0'||k==='Home'){rx=-14;ry=-28;if(pf)s3=Math.min(60,Math.floor(300/pf.trim_h_in));stage();}
+  else return;e.preventDefault();});
 })();
 boot();
 </script>
