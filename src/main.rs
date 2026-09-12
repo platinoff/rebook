@@ -334,10 +334,10 @@ fn build_interior(args: &[String]) -> Result<String, String> {
     }
     if let Some(t) = positionals.first() {
         trim = t;
-    } else if let Ok(bytes) = std::fs::read(proj.label("product.json")) {
-        if let Ok(cfg) = serde_json::from_slice::<rust_book::shelf::ProductConfig>(&bytes) {
-            trim = Box::leak(cfg.trim.into_boxed_str());
-        }
+    } else if let Ok(bytes) = std::fs::read(proj.label("product.json"))
+        && let Ok(cfg) = serde_json::from_slice::<rust_book::shelf::ProductConfig>(&bytes)
+    {
+        trim = Box::leak(cfg.trim.into_boxed_str());
     }
     let tr = rust_book::standards::find_trim(rust_book::standards::PAPERBACK_TRIMS, trim)
         .ok_or_else(|| format!("unknown trim {trim}"))?;
@@ -443,6 +443,35 @@ fn cover_template(args: &[String]) -> Result<String, String> {
     };
 
     let tpl = rust_book::cover::template(trim, pages, paper, mode)?;
+    let mut as_pdf = false;
+    for a in &args[2..] {
+        if a == "--pdf" {
+            as_pdf = true;
+        }
+    }
+    if as_pdf {
+        let doc = rust_book::coverdoc::CoverDoc::new(
+            "",
+            "",
+            mode.tag(),
+            label,
+            pages,
+            match paper {
+                rust_book::standards::Paper::White => "white",
+                rust_book::standards::Paper::Cream => "cream",
+                rust_book::standards::Paper::Groundwood => "ground",
+                rust_book::standards::Paper::PremiumColor => "premium",
+            },
+        );
+        let pdf_path = out
+            .unwrap_or_else(|| format!("build/cover_{}_{}_{}.pdf", trim.label, pages, mode.tag()));
+        let rep = rust_book::coverpdf::render_wrap_pdf(&doc, std::path::Path::new(&pdf_path))?;
+        println!(
+            "  wrap PDF {} ({} bytes, text_placed={} text_skipped={})",
+            pdf_path, rep.bytes, rep.text_placed, rep.text_skipped
+        );
+        return Ok(pdf_path);
+    }
     let svg = rust_book::cover::template_svg_with_isbn(&tpl, isbn);
     let path =
         out.unwrap_or_else(|| format!("build/cover_{}_{}_{}.svg", trim.label, pages, mode.tag()));
