@@ -70,7 +70,7 @@ fn push(v: &mut Vec<Warn>, id: &'static str, ok: bool, detail: impl Into<String>
 }
 
 /// PNG IHDR / JPEG SOF0/SOF2 size sniffing (no image crate).
-fn img_size(b: &[u8]) -> Option<(u32, u32)> {
+pub(crate) fn img_size(b: &[u8]) -> Option<(u32, u32)> {
     if b.len() > 24 && b[0..8] == *b"\x89PNG\r\n\x1a\n" && &b[12..16] == b"IHDR" {
         let w = u32::from_be_bytes(b[16..20].try_into().ok()?);
         let h = u32::from_be_bytes(b[20..24].try_into().ok()?);

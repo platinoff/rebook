@@ -357,7 +357,7 @@ pub fn save_meta(root: &Path, id: &str, p: &MetaPatch<'_>) -> Result<DraftMeta, 
 }
 
 /// Decode a `data:image/…;base64,…` URI into PNG/JPG bytes.
-fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes = s.as_bytes();
     let mut acc: u32 = 0;

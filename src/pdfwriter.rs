@@ -34,6 +34,14 @@ pub struct PdfxProfile {
     pub trim: Option<(f64, f64, f64, f64)>,
 }
 
+/// An embedded raster for cover art (RB-16c): JPEG passthrough (DCTDecode).
+#[derive(Debug, Clone)]
+pub struct RasterImage {
+    pub w_px: u32,
+    pub h_px: u32,
+    pub data: Vec<u8>,
+}
+
 /// A page being built: ops accumulate as a content-stream `Vec<u8>`.
 /// `new_page` rolls the current ops into a finished page; `build` emits all
 /// pages (single-page callers never call `new_page` and get the old shape).
@@ -47,6 +55,7 @@ pub struct PdfPageBuilder {
     pages: Vec<(f64, f64, Vec<u8>)>,
     embedded: Vec<EmbeddedFont>,
     used_cids: Vec<std::collections::BTreeSet<u16>>,
+    images: Vec<RasterImage>,
     pdfx: Option<PdfxProfile>,
 }
 
@@ -60,8 +69,38 @@ impl PdfPageBuilder {
             pages: Vec::new(),
             embedded: Vec::new(),
             used_cids: Vec::new(),
+            images: Vec::new(),
             pdfx: None,
         }
+    }
+
+    /// Register a JPEG raster (bytes as-is, DCTDecode). Returns the image index.
+    pub fn add_image(&mut self, w_px: u32, h_px: u32, data: Vec<u8>) -> usize {
+        self.images.push(RasterImage { w_px, h_px, data });
+        self.images.len() - 1
+    }
+
+    /// Draw image `idx` into the box (cover-fit / slice, centered overflow) with
+    /// a clip, bottom-left origin, points.
+    pub fn draw_image_cover(&mut self, idx: usize, x: f64, y: f64, w: f64, h: f64) {
+        let Some(im) = self.images.get(idx) else {
+            return;
+        };
+        if im.w_px == 0 || im.h_px == 0 || w <= 0.0 || h <= 0.0 {
+            return;
+        }
+        let ia = im.w_px as f64 / im.h_px as f64;
+        let ba = w / h;
+        let (sw, sh) = if ia > ba { (w, w / ia) } else { (h * ia, h) };
+        let ox = x - (sw - w) / 2.0;
+        let oy = y - (sh - h) / 2.0;
+        writeln!(self.ops, "q {:.4} {:.4} {:.4} {:.4} re W n", x, y, w, h).ok();
+        writeln!(
+            self.ops,
+            "q {:.5} 0 0 {:.5} {:.4} {:.4} cm /Im{idx} Do Q Q",
+            sw, sh, ox, oy
+        )
+        .ok();
     }
 
     /// Finish the current page and start another one of the given size.
@@ -267,7 +306,9 @@ impl PdfPageBuilder {
         // base is itself F1 (no gap after the per-page 3+2p / 4+2p pairs).
         let base: u32 = 3 + 2 * k as u32;
         let f1 = base;
-        let info_n = base + 1 + 4 * e as u32;
+        let img0 = base + 1 + 4 * e as u32;
+        let ni = self.images.len() as u32;
+        let info_n = img0 + ni;
         let px = self.pdfx.clone();
         let (xmp_n, oi_n, icc_n) = if px.is_some() {
             (info_n + 1, info_n + 2, info_n + 3)
@@ -303,11 +344,19 @@ impl PdfPageBuilder {
             2,
             format!("<< /Type /Pages /Kids [{}] /Count {k} >>", kids.join(" ")).as_bytes(),
         );
-        let mut fonts = format!("<< /F1 {f1} 0 R");
+        let mut fonts = format!("/F1 {f1} 0 R");
         for i in 0..e {
             fonts.push_str(&format!(" /F{} {} 0 R", 2 + i, base + 1 + 4 * i as u32));
         }
-        fonts.push_str(" >>");
+        let mut xobjs = String::new();
+        if ni > 0 {
+            xobjs.push_str(" /XObject <<");
+            for i in 0..ni {
+                xobjs.push_str(&format!(" /Im{i} {} 0 R", img0 + i));
+            }
+            xobjs.push_str(" >>");
+        }
+        let resources = format!("<< /Font << {fonts} >>{xobjs} >>");
         for (p, (w, h, content)) in all_pages.iter().enumerate() {
             let page_no = 3 + 2 * p as u32;
             let cont_no = 4 + 2 * p as u32;
@@ -323,8 +372,8 @@ impl PdfPageBuilder {
                 ));
             }
             page.push_str(&format!(
-                " /Resources << /Font {} >> /Contents {} 0 R >>",
-                fonts, cont_no
+                " /Resources {} /Contents {} 0 R >>",
+                resources, cont_no
             ));
             obj(&mut out, &mut offsets, page_no, page.as_bytes());
             let stream_hdr = format!("<< /Length {} >>\nstream\n", content.len());
@@ -411,6 +460,20 @@ impl PdfPageBuilder {
             )
             .ok();
             out.extend_from_slice(&f.data);
+            out.extend_from_slice(b"\nendstream\nendobj\n");
+        }
+        for (i, im) in self.images.iter().enumerate() {
+            let n = img0 + i as u32;
+            offsets.push(out.len());
+            write!(
+                out,
+                "{n} 0 obj\n<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n",
+                im.w_px,
+                im.h_px,
+                im.data.len()
+            )
+            .ok();
+            out.extend_from_slice(&im.data);
             out.extend_from_slice(b"\nendstream\nendobj\n");
         }
         let info = {

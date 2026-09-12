@@ -40,6 +40,10 @@ pub struct CoverPdfReport {
     pub cmyk: bool,
     /// Max total ink coverage percent (gate: ≤ 240 for Ingram).
     pub ink_max_pct: f64,
+    /// RB-16c: JPEG front art embedded as a DCTDecode XObject.
+    pub image_placed: bool,
+    /// RB-16c: front_image present but not embeddable (PNG/WebP or CMYK mode).
+    pub image_skipped: bool,
 }
 
 /// Fill a color as RGB or CMYK (RB-17), tracking worst-case ink.
@@ -186,6 +190,35 @@ pub fn render_wrap_pdf_opts(
         embedded_ok = true;
     }
 
+    // RB-16c: raster front art (JPEG passthrough via DCTDecode XObject).
+    // PNG/WebP cannot ride DCTDecode — reported for pre-export conversion.
+    // X-1a/CMYK wraps stay vector-only (RGB rasters break the PDF/X intent).
+    if let Some(uri) = doc.front_image.as_deref() {
+        let b64 = uri.split_once("base64,").map(|(_, r)| r).unwrap_or("");
+        match crate::drafts::b64_decode(b64) {
+            Ok(bytes) if bytes.starts_with(&[0xFF, 0xD8]) && !cmyk => {
+                if let Some((iw, ih)) = crate::preflight::img_size(&bytes) {
+                    let idx = page.add_image(iw, ih, bytes);
+                    if ebook {
+                        page.draw_image_cover(idx, 0.0, 0.0, pt(w), pt(h));
+                    } else {
+                        page.draw_image_cover(
+                            idx,
+                            pt(edge + trim_w + spine),
+                            0.0,
+                            pt(trim_w),
+                            pt(h),
+                        );
+                    }
+                    rep.image_placed = true;
+                } else {
+                    rep.image_skipped = true;
+                }
+            }
+            _ => rep.image_skipped = true,
+        }
+    }
+
     // text layers — centre front panel, white; spine rotated 90°
     let front_cx = if ebook {
         w / 2.0
@@ -309,6 +342,61 @@ mod tests {
         assert!(s.contains("/CIDFontType2"));
         assert!(s.contains("/FontFile2"));
         assert!(s.contains("/Identity-H"));
+    }
+
+    #[test]
+    fn wrap_pdf_embeds_jpeg_raster() {
+        // real repo JPEG (en/cover_kdp.jpg) → DCTDecode XObject on the front panel
+        let jpg = std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("en/cover_kdp.jpg"))
+            .expect("repo cover jpg");
+        let uri = format!(
+            "data:image/jpeg;base64,{}",
+            crate::preflight::b64_encode(&jpg)
+        );
+        let mut d = doc_with(
+            CoverDoc::new("Raster Test", "A", "pb", "6x9", 300, "white"),
+            None,
+        );
+        d.auto_layout();
+        d.front_image = Some(uri.clone());
+        let out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("wrap-raster.pdf");
+        let rep = render_wrap_pdf(&d, &out).unwrap();
+        assert!(rep.image_placed, "JPEG must ride the wrap PDF");
+        let bytes = std::fs::read(&out).unwrap();
+        let s = String::from_utf8_lossy(&bytes).into_owned();
+        assert!(
+            s.contains("/DCTDecode") && s.contains("/Im0"),
+            "xobject missing"
+        );
+        assert!(s.contains("/XObject"), "resources must list the image");
+        let doc = lopdf::Document::load(&out).expect("lopdf parses raster wrap");
+        assert_eq!(doc.get_pages().len(), 1);
+        // PNG (the studio upload default) must be reported, not faked:
+        let png = crate::preflight::b64_encode(&[0x89, b'P', b'N', b'G', 0, 1, 2, 3, 4]);
+        d.front_image = Some(format!("data:image/png;base64,{png}"));
+        let rep = render_wrap_pdf(&d, &out).unwrap();
+        assert!(
+            !rep.image_placed && rep.image_skipped,
+            "PNG → convert-to-JPEG notice"
+        );
+        // CMYK/X-1a stays vector-only (RGB raster would break the output intent):
+        d.front_image = Some(uri);
+        let rep = render_wrap_pdf_opts(
+            &d,
+            &out,
+            &WrapOpts {
+                cmyk: true,
+                pdfx: false,
+                icc: None,
+            },
+        )
+        .unwrap();
+        assert!(
+            !rep.image_placed && rep.image_skipped,
+            "cmyk must skip RGB raster"
+        );
     }
 
     #[test]
