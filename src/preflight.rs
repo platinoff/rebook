@@ -30,6 +30,8 @@ pub struct CoverArt {
     pub data_uri: String,
     /// `png` | `jpeg` | …
     pub mime: String,
+    /// Entry path the cover was read from (RB-36), e.g. `OEBPS/cover.jpeg`.
+    pub file: String,
     /// Pixel width (best effort from IHDR/JPEG SOF).
     pub w_px: u32,
     pub h_px: u32,
@@ -202,6 +204,7 @@ pub fn cover_from_epub(epub: &Epub) -> Option<CoverArt> {
     Some(CoverArt {
         data_uri: format!("data:{mime};base64,{}", b64_encode(&bytes)),
         mime: mime.rsplit('/').next().unwrap_or("png").to_string(),
+        file: name,
         w_px: w,
         h_px: h,
     })
@@ -314,7 +317,7 @@ pub fn run(
                 &mut warnings,
                 "cover:found",
                 true,
-                format!("обкладинку знайдено в EPUB ({})", c.mime),
+                format!("обкладинку знайдено: {} ({})", c.file, c.mime),
             );
             if c.w_px > 0 && !is_ebook {
                 let dpi = c.w_px as f64 / trim.w;
@@ -323,8 +326,8 @@ pub fn run(
                     "cover:dpi",
                     dpi >= 300.0,
                     format!(
-                        "обкладинка {}px на панель {:.1}″ → {:.0} DPI (KDP ≥300)",
-                        c.w_px, trim.w, dpi
+                        "обкладинка {} ({}px) на панель {:.1}″ → {:.0} DPI (KDP ≥300)",
+                        c.file, c.w_px, trim.w, dpi
                     ),
                 );
             }
@@ -490,6 +493,7 @@ mod tests {
     fn cover_extraction_and_preflight() {
         let cov = cover_from_epub(&synth_epub(true, true)).expect("cover found");
         assert_eq!((cov.w_px, cov.h_px), (1, 1));
+        assert_eq!(cov.file, "OEBPS/cover.png", "RB-36: which file was read");
         assert!(cov.data_uri.starts_with("data:image/png;base64,"));
         assert!(cover_from_epub(&synth_epub(false, false)).is_none());
 

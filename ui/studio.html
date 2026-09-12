@@ -129,6 +129,7 @@
    <label class="muted" style="display:block;font-size:.8em;margin-top:.5em" data-i18n="cover">обкладинка</label>
    <input id="mCover" type="file" accept="image/png,image/jpeg" style="width:100%;margin-top:.2em;font-size:.8em"/>
    <img id="mThumb" alt="" style="display:none;max-width:100%;margin-top:.4em;border-radius:6px;border:1px solid var(--line)"/>
+   <div id="mCoverFile" class="muted" style="display:none;font-size:.72em;margin-top:.2em"></div>
    <label class="muted" style="display:block;font-size:.8em;margin-top:.5em" data-i18n="formats">формати</label>
    <div id="mFormats" style="display:flex;gap:.7em;margin-top:.3em;font-size:.85em">
     <label><input type="checkbox" value="ebook"/> ebook</label>
@@ -236,7 +237,8 @@ async function loadDrafts(){
 async function openDraft(id){
  if(!id){cur=null;chaps=[];renderChaps();return;}
  const doc=await j('/api/drafts/'+id);
- cur=doc.meta; chaps=(doc.chapters||[]).map(c=>({...c,words:count(c.content||'')}));
+  cur=doc.meta; chaps=(doc.chapters||[]).map(c=>({...c,words:count(c.content||'')}));
+  const cf=$('#mCoverFile');if(cf){if(doc.cover){cf.textContent='обкладинка: '+doc.cover+' (cover-img API)';cf.style.display='block';}else{cf.style.display='none';}}
   selectChapter(chaps.length?chaps[0].number:0);
   renderChaps();fillMeta(doc.meta);
 }
@@ -539,7 +541,8 @@ $('#mSave').onclick=async()=>{if(!cur)return;
   const f=$('#mCover').files[0];
   if(f){const rd=new FileReader();rd.onload=async()=>{try{await j(`/api/drafts/${cur.id}/cover-img`,{method:'POST',
     headers:{'content-type':'application/json'},body:JSON.stringify({data:rd.result})});
-    $('#mThumb').src=rd.result;$('#mThumb').style.display='block';}catch(e){$('#mBuildOut').textContent='cover: '+e.message;}};
+    $('#mThumb').src=rd.result;$('#mThumb').style.display='block';
+    const cf=$('#mCoverFile');if(cf){cf.textContent='обкладинка: '+f.name+' → cover.png';cf.style.display='block';}}catch(e){$('#mBuildOut').textContent='cover: '+e.message;}};
    rd.readAsDataURL(f);}
   pill('saved');await loadDrafts();}
  catch(e){pill('failed');}

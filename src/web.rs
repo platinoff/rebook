@@ -374,11 +374,20 @@ async fn api_draft_get(
             json_esc(&content)
         ));
     }
-    let body = format!(
-        "{{\"meta\":{},\"chapters\":[{}]}}",
-        meta.to_json(),
-        parts.join(",")
-    );
+    let body = {
+        let dir = crate::drafts::draft_dir(&st.drafts_root, &id);
+        let cover = ["cover.png", "cover.jpg"]
+            .iter()
+            .find(|f| dir.join(f).exists())
+            .map(|f| format!("\"{f}\""))
+            .unwrap_or_else(|| "null".to_string());
+        format!(
+            "{{\"meta\":{},\"chapters\":[{}],\"cover\":{}}}",
+            meta.to_json(),
+            parts.join(","),
+            cover
+        )
+    };
     text_response(StatusCode::OK, "application/json; charset=utf-8", body)
 }
 
