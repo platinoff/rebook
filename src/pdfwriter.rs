@@ -8,6 +8,21 @@
 
 use std::io::Write as _;
 
+/// An embedded TrueType font (CID/Type0, Identity-H).
+#[derive(Debug, Clone)]
+pub struct EmbeddedFont {
+    /// `/BaseFont` name (ASCII, no spaces).
+    pub base: String,
+    /// Raw TTF bytes for `/FontFile2`.
+    pub data: Vec<u8>,
+    /// Advance widths per GID, 1/1000 em.
+    pub widths: Vec<i32>,
+    /// Font descriptor metrics (1/1000 em): ascent, descent, bbox.
+    pub ascent_1000: i32,
+    pub descent_1000: i32,
+    pub bbox_1000: (i32, i32, i32, i32),
+}
+
 /// A page being built: ops accumulate as a content-stream `Vec<u8>`.
 #[derive(Debug, Clone)]
 pub struct PdfPageBuilder {
@@ -16,6 +31,8 @@ pub struct PdfPageBuilder {
     /// Page height, points.
     pub h_pt: f64,
     ops: Vec<u8>,
+    embedded: Option<EmbeddedFont>,
+    used_cids: std::collections::BTreeSet<u16>,
 }
 
 impl PdfPageBuilder {
@@ -25,6 +42,8 @@ impl PdfPageBuilder {
             w_pt,
             h_pt,
             ops: Vec::new(),
+            embedded: None,
+            used_cids: Default::default(),
         }
     }
 
@@ -78,13 +97,48 @@ impl PdfPageBuilder {
         true
     }
 
+    /// Register an embedded TrueType font used as `/F2` (Identity-H).
+    pub fn set_embedded_font(&mut self, font: EmbeddedFont) {
+        self.embedded = Some(font);
+    }
+
+    /// Write glyph-CID hex text (`/F2`), 90°-rotated when `rot90`.
+    pub fn text_cid(&mut self, x: f64, y: f64, size: f64, cids: &[u16], rot90: bool) {
+        if cids.is_empty() || self.embedded.is_none() {
+            return;
+        }
+        self.used_cids.extend(cids.iter().copied());
+        let hex: String = cids.iter().map(|c| format!("{c:04X}")).collect();
+        let tm = if rot90 {
+            format!("0 1 -1 0 {:.4} {:.4}", x, y)
+        } else {
+            format!("1 0 0 1 {:.4} {:.4}", x, y)
+        };
+        writeln!(self.ops, "BT /F2 {:.4} Tf {tm} Tm <{hex}> Tj ET", size).ok();
+    }
+
+    /// Width in points of a CID run at `size` (for centering); 0 without font.
+    pub fn cid_width_pt(&self, cids: &[u16], size: f64) -> f64 {
+        let Some(f) = &self.embedded else { return 0.0 };
+        cids.iter()
+            .map(|c| f.widths.get(*c as usize).copied().unwrap_or(0) as f64)
+            .sum::<f64>()
+            * size
+            / 1000.0
+    }
+
     /// Finish: bytes of the whole PDF document.
     pub fn build(self, title: &str) -> Vec<u8> {
         let content = self.ops;
-        // object numbers: 1 catalog, 2 pages, 3 page, 4 contents, 5 font
+        let used = self.used_cids;
+        let emb = self.embedded;
+        // object layout: 1 cat, 2 pages, 3 page, 4 contents, 5 F1,
+        // [6 Type0, 7 CIDFont, 8 FontDescriptor, 9 FontFile2], Info last.
+        let info_n: u32 = if emb.is_some() { 10 } else { 6 };
+        let n_objs = info_n;
         let mut out = Vec::new();
         out.extend_from_slice(b"%PDF-1.4\n");
-        let mut offsets = Vec::with_capacity(5);
+        let mut offsets = Vec::with_capacity(n_objs as usize);
         let obj = |buf: &mut Vec<u8>, offs: &mut Vec<usize>, n: u32, body: &[u8]| {
             offs.push(buf.len());
             writeln!(buf, "{n} 0 obj").ok();
@@ -103,8 +157,13 @@ impl PdfPageBuilder {
             2,
             b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         );
+        let fonts = if emb.is_some() {
+            "<< /F1 5 0 R /F2 6 0 R >>"
+        } else {
+            "<< /F1 5 0 R >>"
+        };
         let page = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /Resources << /Font {fonts} >> /Contents 4 0 R >>",
             self.w_pt, self.h_pt
         );
         obj(&mut out, &mut offsets, 3, page.as_bytes());
@@ -120,6 +179,74 @@ impl PdfPageBuilder {
             5,
             b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
         );
+        if let Some(f) = emb {
+            // /W: consecutive cid runs
+            let mut w = String::from("[");
+            let mut it = used.iter().peekable();
+            while let Some(&start) = it.next() {
+                let mut end = start;
+                while let Some(&&nx) = it.peek() {
+                    if nx == end + 1 {
+                        end = nx;
+                        it.next();
+                    } else {
+                        break;
+                    }
+                }
+                if start == end {
+                    w.push_str(&format!(
+                        " {start} [{}]",
+                        f.widths.get(start as usize).copied().unwrap_or(0)
+                    ));
+                } else {
+                    let ws: Vec<String> = (start..=end)
+                        .map(|c| f.widths.get(c as usize).copied().unwrap_or(0).to_string())
+                        .collect();
+                    w.push_str(&format!(" {start} [{}]", ws.join(" ")));
+                }
+            }
+            w.push_str(" ]");
+            let base = f.base.clone();
+            obj(
+                &mut out,
+                &mut offsets,
+                6,
+                format!(
+                    "<< /Type /Font /Subtype /Type0 /BaseFont /{base} /Encoding /Identity-H /DescendantFonts [7 0 R] >>"
+                )
+                .as_bytes(),
+            );
+            obj(
+                &mut out,
+                &mut offsets,
+                7,
+                format!(
+                    "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{base} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R /DW 1000 /W {w} /CIDToGIDMap /Identity >>"
+                )
+                .as_bytes(),
+            );
+            let (x0, y0, x1, y1) = f.bbox_1000;
+            obj(
+                &mut out,
+                &mut offsets,
+                8,
+                format!(
+                    "<< /Type /FontDescriptor /FontName /{base} /Flags 2 /FontBBox [{x0} {y0} {x1} {y1}] /ItalicAngle 0 /Ascent {} /Descent {} /CapHeight {} /StemV 80 /FontFile2 9 0 R >>",
+                    f.ascent_1000, f.descent_1000, f.ascent_1000
+                )
+                .as_bytes(),
+            );
+            offsets.push(out.len());
+            write!(
+                out,
+                "9 0 obj\n<< /Length {} /Length1 {} >>\nstream\n",
+                f.data.len(),
+                f.data.len()
+            )
+            .ok();
+            out.extend_from_slice(&f.data);
+            out.extend_from_slice(b"\nendstream\nendobj\n");
+        }
         let info = {
             let t = title
                 .chars()
@@ -128,15 +255,16 @@ impl PdfPageBuilder {
             format!("<< /Title ({t}) /Producer (rebook pdfwriter) >>")
         };
         offsets.push(out.len());
-        write!(out, "6 0 obj\n{info}\nendobj\n").ok();
+        write!(out, "{info_n} 0 obj\n{info}\nendobj\n").ok();
         let xref_pos = out.len();
-        write!(out, "xref\n0 7\n0000000000 65535 f \n").ok();
+        write!(out, "xref\n0 {}\n0000000000 65535 f \n", n_objs + 1).ok();
         for off in offsets {
             writeln!(out, "{off:010} 00000 n ").ok();
         }
         write!(
             out,
-            "trailer\n<< /Size 7 /Root 1 0 R /Info 6 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n"
+            "trailer\n<< /Size {} /Root 1 0 R /Info {info_n} 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n",
+            n_objs + 1
         )
         .ok();
         out

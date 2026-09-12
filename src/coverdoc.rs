@@ -60,6 +60,9 @@ pub struct CoverDoc {
     /// full-front under the text layers.
     #[serde(default)]
     pub front_image: Option<String>,
+    /// ISBN for the cover barcode (RB-16b; None = zone left clear).
+    #[serde(default)]
+    pub isbn: Option<String>,
     /// Title layer (front).
     pub title: TextLayer,
     /// Author layer (front, bottom).
@@ -98,6 +101,7 @@ impl CoverDoc {
             bg_back: default_color(),
             spine_bg: None,
             front_image: None,
+            isbn: None,
             title: TextLayer {
                 text: title.into(),
                 x: 0.0,
@@ -132,7 +136,7 @@ impl CoverDoc {
         Ok((t.size.w, t.size.h))
     }
 
-    fn parse_mode(&self) -> Result<(Mode, &'static [Trim]), String> {
+    pub(crate) fn parse_mode(&self) -> Result<(Mode, &'static [Trim]), String> {
         match self.mode.as_str() {
             "pb" => Ok((Mode::Paperback, PAPERBACK_TRIMS)),
             "hc" => Ok((Mode::CaseLaminate, HARDCOVER_TRIMS)),
@@ -201,7 +205,7 @@ impl CoverDoc {
         }
     }
 
-    fn spine_width_in(&self) -> f64 {
+    pub(crate) fn spine_width_in(&self) -> f64 {
         let paper = self.paper_enum();
         let pages = even_pages(self.pages);
         match self.mode.as_str() {

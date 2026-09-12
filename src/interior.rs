@@ -25,8 +25,18 @@ pub struct FontPaths {
     pub bold_italic: PathBuf,
 }
 
+/// True when a TTF actually maps basic glyphs (system placeholder faces
+/// like a stubbed times.ttf pass `exists()` but fail here).
+fn usable(path: &Path) -> bool {
+    match crate::ttf::TtfFont::load(path) {
+        Ok(f) => f.glyph('A') != 0 && f.glyph('К') != 0,
+        Err(_) => false,
+    }
+}
+
 /// Find a Cyrillic-capable TTF family: env overrides first, then common
-/// Windows font files, then a Linux default. `Err` when nothing exists.
+/// Windows font files (skipping cmap stubs), then a Linux default.
+/// `Err` when nothing usable exists.
 pub fn discover_fonts() -> Result<FontPaths, String> {
     if let Ok(reg) = std::env::var("REBOOK_FONT_TTF") {
         let reg = PathBuf::from(reg);
@@ -63,7 +73,7 @@ pub fn discover_fonts() -> Result<FontPaths, String> {
     ];
     for (r, b, i, bi) in sets {
         let regular = root.join(r);
-        if regular.exists() {
+        if regular.exists() && usable(&regular) {
             let (bold, italic, bold_italic) = {
                 let opt = |f: &str| {
                     let p = root.join(f);
@@ -86,7 +96,7 @@ pub fn discover_fonts() -> Result<FontPaths, String> {
         "/usr/share/fonts/liberation-serif/LiberationSerif-Italic.ttf",
         "/usr/share/fonts/liberation-serif/LiberationSerif-BoldItalic.ttf",
     )] {
-        if Path::new(r).exists() {
+        if Path::new(r).exists() && usable(Path::new(r)) {
             return Ok(FontPaths {
                 regular: PathBuf::from(r),
                 bold: PathBuf::from(b),

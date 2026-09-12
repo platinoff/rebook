@@ -16,6 +16,7 @@ pub mod kdp;
 pub mod pdfwriter;
 pub mod shelf;
 pub mod standards;
+pub mod ttf;
 pub mod viewer;
 pub mod web;
 

@@ -450,9 +450,25 @@ fn cover_template(args: &[String]) -> Result<String, String> {
         }
     }
     if as_pdf {
-        let doc = rust_book::coverdoc::CoverDoc::new(
-            "",
-            "",
+        let mut title = String::new();
+        let mut author = String::new();
+        let mut i2 = 0usize;
+        while i2 < args.len() {
+            match args[i2].as_str() {
+                "--title" if i2 + 1 < args.len() => {
+                    title = args[i2 + 1].clone();
+                    i2 += 2;
+                }
+                "--author" if i2 + 1 < args.len() => {
+                    author = args[i2 + 1].clone();
+                    i2 += 2;
+                }
+                _ => i2 += 1,
+            }
+        }
+        let mut doc = rust_book::coverdoc::CoverDoc::new(
+            &title,
+            &author,
             mode.tag(),
             label,
             pages,
@@ -463,12 +479,13 @@ fn cover_template(args: &[String]) -> Result<String, String> {
                 rust_book::standards::Paper::PremiumColor => "premium",
             },
         );
+        doc.isbn = isbn.map(str::to_string);
         let pdf_path = out
             .unwrap_or_else(|| format!("build/cover_{}_{}_{}.pdf", trim.label, pages, mode.tag()));
         let rep = rust_book::coverpdf::render_wrap_pdf(&doc, std::path::Path::new(&pdf_path))?;
         println!(
-            "  wrap PDF {} ({} bytes, text_placed={} text_skipped={})",
-            pdf_path, rep.bytes, rep.text_placed, rep.text_skipped
+            "  wrap PDF {} ({} bytes, placed={} embedded={} barcode={} bars)",
+            pdf_path, rep.bytes, rep.text_placed, rep.text_embedded, rep.barcode_bars
         );
         return Ok(pdf_path);
     }
