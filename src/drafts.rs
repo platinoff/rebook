@@ -35,6 +35,15 @@ pub struct DraftMeta {
     /// Chapter list (number/title/file, file relative to the draft dir).
     #[serde(default)]
     pub chapters: Vec<ChapterMeta>,
+    /// Print trim override (RB-26 meta).
+    #[serde(default)]
+    pub trim: Option<String>,
+    /// Explicit print page count (RB-26 meta).
+    #[serde(default)]
+    pub pages: Option<u32>,
+    /// ISBN for the print barcode (RB-26 meta).
+    #[serde(default)]
+    pub isbn: Option<String>,
     /// Unix seconds of the last save.
     #[serde(default)]
     pub updated: u64,
@@ -114,6 +123,9 @@ pub fn create(root: &Path, title: &str, author: &str, language: &str) -> Result<
         },
         formats: vec!["ebook".to_string()],
         chapters: Vec::new(),
+        trim: None,
+        pages: None,
+        isbn: None,
         updated: now(),
     };
     std::fs::write(meta_path(root, &meta.id), meta.to_json())
@@ -284,6 +296,160 @@ pub fn delete(root: &Path, id: &str) -> Result<(), String> {
     safe_id(id)?;
     let _ = load(root, id)?;
     std::fs::remove_dir_all(draft_dir(root, id)).map_err(|e| format!("delete {id}: {e}"))
+}
+
+/// RB-26: patch front matter (only provided fields), then persist.
+#[derive(Debug, Default)]
+pub struct MetaPatch<'a> {
+    /// New title (ignored when empty).
+    pub title: Option<&'a str>,
+    /// New author.
+    pub author: Option<&'a str>,
+    /// `uk` | `en`.
+    pub language: Option<&'a str>,
+    /// ebook / paperback / hardcover.
+    pub formats: Option<&'a [String]>,
+    /// Print trim label.
+    pub trim: Option<&'a str>,
+    /// Explicit even page count.
+    pub pages: Option<u32>,
+    /// ISBN (validated via EAN-13).
+    pub isbn: Option<&'a str>,
+}
+
+pub fn save_meta(root: &Path, id: &str, p: &MetaPatch<'_>) -> Result<DraftMeta, String> {
+    let mut meta = load(root, id)?;
+    if let Some(t) = p.title.map(str::trim)
+        && !t.is_empty()
+    {
+        meta.title = t.to_string();
+    }
+    if let Some(a) = p.author {
+        meta.author = a.trim().to_string();
+    }
+    if let Some(l) = p.language.map(str::trim)
+        && matches!(l, "uk" | "en")
+    {
+        meta.language = l.to_string();
+    }
+    if let Some(f) = p.formats {
+        let allowed = ["ebook", "paperback", "hardcover"];
+        for t in f {
+            if !allowed.contains(&t.as_str()) {
+                return Err(format!("unknown format {t:?}"));
+            }
+        }
+        meta.formats = f.to_vec();
+    }
+    if let Some(t) = p.trim.map(str::trim).filter(|t| !t.is_empty()) {
+        meta.trim = Some(t.to_string());
+    }
+    if let Some(pg) = p.pages {
+        meta.pages = Some(crate::standards::even_pages(pg));
+    }
+    if let Some(i) = p.isbn.map(str::trim).filter(|i| !i.is_empty()) {
+        crate::standards::isbn_to_ean13(i)?;
+        meta.isbn = Some(i.to_string());
+    }
+    meta.updated = now();
+    std::fs::write(meta_path(root, &meta.id), meta.to_json()).map_err(|e| e.to_string())?;
+    Ok(meta)
+}
+
+/// Decode a `data:image/…;base64,…` URI into PNG/JPG bytes.
+fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes = s.as_bytes();
+    let mut acc: u32 = 0;
+    let mut nbits = 0u32;
+    let mut out = Vec::new();
+    for &b in bytes {
+        if b == b'=' {
+            break;
+        }
+        let v = T.iter().position(|&c| c == b).ok_or("bad base64 byte")? as u32;
+        acc = (acc << 6) | v;
+        nbits += 6;
+        if nbits >= 8 {
+            nbits -= 8;
+            out.push((acc >> nbits) as u8);
+        }
+    }
+    Ok(out)
+}
+
+/// RB-26: store an uploaded cover image (data-URI) as the draft's cover,
+/// at both dir/cover.png (shelf auto-detect) and assets/cover.png (promote).
+pub fn save_cover_img(root: &Path, id: &str, data_uri: &str) -> Result<(), String> {
+    let _ = load(root, id)?;
+    let b64 = data_uri
+        .split_once("base64,")
+        .map(|(_, r)| r)
+        .ok_or("expected data:image/…;base64, URI")?;
+    let bytes = b64_decode(b64)?;
+    if bytes.len() < 8 || bytes.len() > 20_000_000 {
+        return Err("cover image size out of range".to_string());
+    }
+    let is_png = bytes.starts_with(b"\x89PNG");
+    let is_jpg = bytes.starts_with(&[0xFF, 0xD8]);
+    if !is_png && !is_jpg {
+        return Err("cover must be PNG or JPEG".to_string());
+    }
+    let dir = draft_dir(root, id);
+    std::fs::create_dir_all(dir.join("assets")).map_err(|e| e.to_string())?;
+    let name = if is_png { "cover.png" } else { "cover.jpg" };
+    std::fs::write(dir.join(name), &bytes).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("assets").join(name), &bytes).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// RB-26: build the draft's targeted print/ebook products in one pass
+/// (shelf engine, trim 6×9, white paper, pages estimated). Returns file list.
+pub fn build_products(root: &Path, id: &str) -> Result<Vec<String>, String> {
+    let meta = load(root, id)?;
+    if meta.chapters.is_empty() {
+        return Err(format!("draft {} has no chapters", meta.id));
+    }
+    let dir = draft_dir(root, &meta.id);
+    let book = Book {
+        title: meta.title.clone(),
+        author: meta.author.clone(),
+        edition: 1,
+        year: (now() / 31_557_600) as u32 + 1,
+        format: "EPUB 3.2".to_string(),
+        language: meta.language.clone(),
+        chapters: meta.chapters.clone(),
+    };
+    let chapters = crate::load_chapters(&dir, &book)?;
+    let targets: Vec<String> = if meta.formats.is_empty() {
+        vec!["ebook".to_string()]
+    } else {
+        meta.formats.clone()
+    };
+    let mut cfg = crate::shelf::ProductConfig {
+        targets,
+        trim: meta.trim.clone().unwrap_or_else(|| "6x9".to_string()),
+        pages: meta.pages,
+        paper: crate::shelf::PaperName::White,
+        isbn: meta.isbn.clone(),
+    };
+    if !cfg.targets.iter().any(|t| t == "ebook") {
+        cfg.targets.insert(0, "ebook".to_string());
+    }
+    let paths = crate::shelf::build_product(&dir, &book, &chapters, &cfg)?;
+    let mut files = Vec::new();
+    for p in [&paths.ebook, &paths.paperback, &paths.hardcover]
+        .into_iter()
+        .flatten()
+    {
+        files.push(
+            p.strip_prefix(&dir)
+                .unwrap_or(p.as_path())
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+    }
+    Ok(files)
 }
 
 /// Promote a draft: render its markdown through the strict EPUB pipeline.

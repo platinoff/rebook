@@ -66,6 +66,9 @@ pub fn router(state: Arc<AppState>) -> Router {
             put(api_draft_put_chapter).delete(api_draft_delete_chapter),
         )
         .route("/api/drafts/{id}/reorder", put(api_draft_reorder))
+        .route("/api/drafts/{id}/meta", put(api_draft_meta))
+        .route("/api/drafts/{id}/cover-img", post(api_draft_cover_img))
+        .route("/api/drafts/{id}/build", post(api_draft_build))
         .route("/api/drafts/{id}/promote", post(api_draft_promote))
         .route(
             "/api/drafts/{id}/cover",
@@ -444,6 +447,82 @@ async fn api_draft_reorder(
             "application/json; charset=utf-8",
             meta.to_json(),
         ),
+        Err(e) => draft_err(e),
+    }
+}
+
+/// RB-26: front-matter patch for a draft (all fields optional).
+#[derive(serde::Deserialize)]
+struct MetaIn {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    author: Option<String>,
+    #[serde(default)]
+    language: Option<String>,
+    #[serde(default)]
+    formats: Option<Vec<String>>,
+    #[serde(default)]
+    trim: Option<String>,
+    #[serde(default)]
+    pages: Option<u32>,
+    #[serde(default)]
+    isbn: Option<String>,
+}
+
+async fn api_draft_meta(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+    Json(b): Json<MetaIn>,
+) -> Response {
+    let patch = crate::drafts::MetaPatch {
+        title: b.title.as_deref(),
+        author: b.author.as_deref(),
+        language: b.language.as_deref(),
+        formats: b.formats.as_deref(),
+        trim: b.trim.as_deref(),
+        pages: b.pages,
+        isbn: b.isbn.as_deref(),
+    };
+    match crate::drafts::save_meta(&st.drafts_root, &id, &patch) {
+        Ok(meta) => text_response(
+            StatusCode::OK,
+            "application/json; charset=utf-8",
+            meta.to_json(),
+        ),
+        Err(e) => draft_err(e),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct CoverImgIn {
+    data: String,
+}
+
+async fn api_draft_cover_img(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+    Json(b): Json<CoverImgIn>,
+) -> Response {
+    match crate::drafts::save_cover_img(&st.drafts_root, &id, &b.data) {
+        Ok(()) => text_response(
+            StatusCode::OK,
+            "text/plain; charset=utf-8",
+            "saved".to_string(),
+        ),
+        Err(e) => draft_err(e),
+    }
+}
+
+async fn api_draft_build(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+) -> Response {
+    match crate::drafts::build_products(&st.drafts_root, &id) {
+        Ok(files) => {
+            let body = serde_json::to_string(&files).unwrap_or_else(|_| "[]".into());
+            text_response(StatusCode::OK, "application/json; charset=utf-8", body)
+        }
         Err(e) => draft_err(e),
     }
 }
@@ -853,6 +932,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn meta_cover_build_endpoints() {
+        let st0 = fixture_state();
+        let st = Arc::new(AppState {
+            books: st0.books.clone(),
+            root: st0.root.clone(),
+            drafts_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("target")
+                .join("web-drafts-meta"),
+            products_root: st0.products_root.clone(),
+        });
+        let _ = std::fs::remove_dir_all(&st.drafts_root);
+        let (s, _) = json_call(
+            router(st.clone()),
+            "POST",
+            "/api/drafts",
+            r#"{"title":"Meta Test","author":"A","language":"uk"}"#,
+        )
+        .await;
+        assert_eq!(s, StatusCode::CREATED);
+        json_call(
+            router(st.clone()),
+            "PUT",
+            "/api/drafts/meta-test/chapter/1",
+            r#"{"title":"One","content":"word word word word word word word word word word"}"#,
+        )
+        .await;
+        let (s, b) = json_call(
+            router(st.clone()),
+            "PUT",
+            "/api/drafts/meta-test/meta",
+            r#"{"author":"Artem","language":"en","formats":["ebook","hardcover"],"pages":80,"isbn":"978-3-16-148410-0"}"#,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(b.contains("\"language\":\"en\""));
+        assert!(b.contains("hardcover"));
+        let (s, _) = json_call(
+            router(st.clone()),
+            "PUT",
+            "/api/drafts/meta-test/meta",
+            r#"{"formats":["audiobook"]}"#,
+        )
+        .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+        let (s, _) = json_call(
+            router(st.clone()),
+            "POST",
+            "/api/drafts/meta-test/cover-img",
+            r#"{"data":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="}"#,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(st.drafts_root.join("meta-test/cover.png").exists());
+        let (s, b) = json_call(
+            router(st.clone()),
+            "POST",
+            "/api/drafts/meta-test/build",
+            "",
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        assert!(b.contains("ebook/meta-test.epub"));
+        assert!(b.contains("meta-test-hc.zip"));
+    }
+
+    #[tokio::test]
     async fn cover_dims_api_for_mockup() {
         let (s, b) = get(
             router(fixture_state()),
@@ -902,6 +1047,14 @@ mod tests {
     #[tokio::test]
     async fn drafts_roundtrip_over_http() {
         let st = fixture_state();
+        let st = Arc::new(AppState {
+            books: st.books.clone(),
+            root: st.root.clone(),
+            drafts_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("target")
+                .join("web-drafts-rt"),
+            products_root: st.products_root.clone(),
+        });
         let _ = std::fs::remove_dir_all(&st.drafts_root);
         let (s, body) = json_call(
             router(st.clone()),

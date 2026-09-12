@@ -88,6 +88,28 @@
   <div class="railhead"><button class="btn" id="addChap" data-i18n="new">＋ розділ</button>
    <span class="grow"></span><span class="muted" id="bookWords"></span></div>
   <ul id="chapList"></ul>
+  <details id="metaPanel" style="margin-top:.8em;border-top:1px solid var(--line);padding-top:.6em">
+   <summary style="cursor:pointer;color:var(--acc);font-size:.9em" data-i18n="meta">⚙ Мета книги</summary>
+   <label class="muted" style="display:block;font-size:.8em;margin-top:.5em" data-i18n="author">автор</label>
+   <input id="mAuthor" style="width:100%;margin-top:.2em"/>
+   <label class="muted" style="display:block;font-size:.8em;margin-top:.5em" data-i18n="lang">мова</label>
+   <select id="mLang" style="width:100%;margin-top:.2em"><option value="uk">uk — українська</option><option value="en">en — English</option></select>
+   <label class="muted" style="display:block;font-size:.8em;margin-top:.5em" data-i18n="cover">обкладинка</label>
+   <input id="mCover" type="file" accept="image/png,image/jpeg" style="width:100%;margin-top:.2em;font-size:.8em"/>
+   <img id="mThumb" alt="" style="display:none;max-width:100%;margin-top:.4em;border-radius:6px;border:1px solid var(--line)"/>
+   <label class="muted" style="display:block;font-size:.8em;margin-top:.5em" data-i18n="formats">формати</label>
+   <div id="mFormats" style="display:flex;gap:.7em;margin-top:.3em;font-size:.85em">
+    <label><input type="checkbox" value="ebook"/> ebook</label>
+    <label><input type="checkbox" value="paperback"/> pb</label>
+    <label><input type="checkbox" value="hardcover"/> hc</label>
+   </div>
+   <div style="display:flex;gap:.4em;flex-wrap:wrap;margin-top:.7em">
+    <button class="btn" id="mSave" data-i18n="msave">Зберегти</button>
+    <button class="btn ghost" id="mBuild" data-i18n="mbuild">📦 Build products</button>
+   </div>
+   <div id="mBuildOut" class="muted" style="font-size:.75em;margin-top:.4em;white-space:pre-wrap"></div>
+   <button class="btn ghost" id="mDel" style="margin-top:.6em;color:var(--bad);border-color:var(--bad)" data-i18n="mdel">✕ Видалити чернетку</button>
+  </details>
  </aside>
  <section>
   <div class="bar">
@@ -125,10 +147,14 @@ const LS=localStorage;
 const L={
  uk:{app:'Studio — чернетки',shelf:'Полиця',cover:'Обкладинки',products:'Продукти',target:'ціль',today:'сьогодні',new:'＋ розділ',
   keys:'Гарячі клавіші',idle:'Готово',saving:'збереження…',saved:'Збережено',failed:'помилка — повторити',
-  del:'Видалити розділ?', sure:'Перейменувати — Enter, скасувати — Esc', chap:'Розділ', renamed:'перейменовано', reordered:'порядок збережено'},
+  del:'Видалити розділ?', sure:'Перейменувати — Enter, скасувати — Esc', chap:'Розділ', renamed:'перейменовано', reordered:'порядок збережено',
+  meta:'⚙ Мета книги', author:'автор', lang:'мова', cover:'обкладинка', formats:'формати (для Build products)',
+  msave:'Зберегти', mbuild:'📦 Build products', mdel:'✕ Видалити чернетку'},
  en:{app:'Studio — drafts',shelf:'Shelf',cover:'Covers',products:'Products',target:'goal',today:'today',new:'＋ chapter',
   keys:'Keyboard shortcuts',idle:'Ready',saving:'saving…',saved:'Saved',failed:'failed — retry',
-  del:'Delete this chapter?', sure:'Rename — Enter, Esc cancels', chap:'Chapter', renamed:'renamed', reordered:'order saved'}
+  del:'Delete this chapter?', sure:'Rename — Enter, Esc cancels', chap:'Chapter', renamed:'renamed', reordered:'order saved',
+  meta:'⚙ Book meta', author:'author', lang:'language', cover:'cover', formats:'formats (for Build products)',
+  msave:'Save', mbuild:'📦 Build products', mdel:'✕ Delete draft'}
 };
 let lang=LS.getItem('rb.lang')||'uk';
 function T(k){return (L[lang]&&L[lang][k])||L.uk[k]||k;}
@@ -160,8 +186,8 @@ async function openDraft(id){
  if(!id){cur=null;chaps=[];renderChaps();return;}
  const doc=await j('/api/drafts/'+id);
  cur=doc.meta; chaps=(doc.chapters||[]).map(c=>({...c,words:count(c.content||'')}));
- selectChapter(chaps.length?chaps[0].number:0);
- renderChaps();
+  selectChapter(chaps.length?chaps[0].number:0);
+  renderChaps();fillMeta(doc.meta);
 }
 function renderChaps(){
  const ul=$('#chapList');ul.innerHTML='';
@@ -351,6 +377,30 @@ function xRun(q){const res=$('#xres');if(!q){res.innerHTML='<span class="muted">
   ta.setSelectionRange(h.s,h.s+q.length);ta.focus();
   const lh=parseFloat(getComputedStyle(ta).lineHeight)||24;ta.scrollTop=Math.max(0,(ta.value.slice(0,h.s).match(/\n/g)||[]).length*lh-150);});
 }
+/* meta panel (RB-26) */
+function fillMeta(m){if(!m)return;$('#mAuthor').value=m.author||'';$('#mLang').value=(m.language==='en')?'en':'uk';
+ $('#mFormats').querySelectorAll('input').forEach(cb=>{cb.checked=(m.formats||[]).includes(cb.value);});}
+$('#mSave').onclick=async()=>{if(!cur)return;
+ const formats=[...$('#mFormats').querySelectorAll('input:checked')].map(c=>c.value);
+ try{const m=await j(`/api/drafts/${cur.id}/meta`,{method:'PUT',headers:{'content-type':'application/json'},
+   body:JSON.stringify({author:$('#mAuthor').value,language:$('#mLang').value,formats})});
+  cur=m;const ct=$('#curTitle');if(ct)ct.textContent=m.title+' ('+m.language+')';
+  const f=$('#mCover').files[0];
+  if(f){const rd=new FileReader();rd.onload=async()=>{try{await j(`/api/drafts/${cur.id}/cover-img`,{method:'POST',
+    headers:{'content-type':'application/json'},body:JSON.stringify({data:rd.result})});
+    $('#mThumb').src=rd.result;$('#mThumb').style.display='block';}catch(e){$('#mBuildOut').textContent='cover: '+e.message;}};
+   rd.readAsDataURL(f);}
+  pill('saved');await loadDrafts();}
+ catch(e){pill('failed');}
+};
+$('#mBuild').onclick=async()=>{if(!cur){return;}$('#mBuildOut').textContent='building…';
+ try{const files=await j(`/api/drafts/${cur.id}/build`,{method:'POST'});
+  $('#mBuildOut').textContent=files.length?'✓ '+files.join('\n'):'(empty)';}
+ catch(e){$('#mBuildOut').textContent='✗ '+e.message;}};
+$('#mDel').onclick=async()=>{if(!cur||!confirm('Видалити чернетку?'))return;
+ await fetch('/api/drafts/'+cur.id,{method:'DELETE'});cur=null;chaps=[];
+ $('#editorbar').hidden=true;$('#editor').hidden=true;await loadDrafts();};
+
 /* init persisted toggles */
 if(LS.getItem('rb.light'))document.body.classList.add('light');
 if(LS.getItem('rb.norail'))document.body.classList.add('norail');

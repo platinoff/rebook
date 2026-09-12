@@ -187,7 +187,7 @@ debounce).
 | 25 | Studio find/replace (Ctrl+F) + cross-chapter search (Ctrl+Shift+F) + click-preview→caret | ✅ band 255 |
 | 24 | Complete print packages (interior.pdf + cover-wrap.pdf + epub-in-zip) — EN HC delivered | ✅ `8554eba` |
 | 23 | Focus mode, slash menu, quick-open | queued |
-| 26 | Studio meta panel (author/lang/cover/formats) + build-products | queued |
+| 26 | Studio meta panel (author/lang/cover/formats/trim-pages-isbn via API) + per-draft build + delete | ✅ band 257 |
 
 Shortcut canon: Ctrl+B/I/E/K, Alt+1..3, Ctrl+S ritual, Ctrl+P quick-open,
 Ctrl+1/2 rails, arrows nudge (canvas), Ctrl+0 zoom, `?` cheatsheet.
