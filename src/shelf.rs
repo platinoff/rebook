@@ -157,11 +157,23 @@ pub fn build_product(
                 let out = paths.dir.join("ebook").join(format!("{s}.epub"));
                 std::fs::create_dir_all(out.parent().unwrap())
                     .map_err(|e| format!("mkdir ebook: {e}"))?;
+                // same cover auto-detect as the CLI: cover.png / cover_kdp.jpg / cover.jpg next to book.json
+                let cover = [
+                    "cover.png",
+                    "cover_kdp.jpg",
+                    "cover.jpg",
+                    "cover.jpeg",
+                    "cover.webp",
+                ]
+                .iter()
+                .map(|c| base.join(c))
+                .find(|p| p.exists())
+                .map(|p| p.to_string_lossy().into_owned());
                 let config = EpubConfig {
                     title: book.title.clone(),
                     author: book.author.clone(),
                     output_path: out.to_string_lossy().into_owned(),
-                    cover_image: None,
+                    cover_image: cover,
                     language: book.language.clone(),
                 };
                 generate_epub(&config, book, chapters)?;
@@ -169,11 +181,27 @@ pub fn build_product(
                 write_checklist(&paths.dir.join("ebook").join("CHECKLIST.md"), "ebook", "")?;
             }
             "paperback" => {
-                let p = print_package(&mut paths, &s, cfg, Mode::Paperback, PAPERBACK_TRIMS)?;
+                let p = print_package(
+                    &mut paths,
+                    &s,
+                    book,
+                    chapters,
+                    cfg,
+                    Mode::Paperback,
+                    PAPERBACK_TRIMS,
+                )?;
                 paths.paperback = Some(p);
             }
             "hardcover" => {
-                let p = print_package(&mut paths, &s, cfg, Mode::CaseLaminate, HARDCOVER_TRIMS)?;
+                let p = print_package(
+                    &mut paths,
+                    &s,
+                    book,
+                    chapters,
+                    cfg,
+                    Mode::CaseLaminate,
+                    HARDCOVER_TRIMS,
+                )?;
                 paths.hardcover = Some(p);
             }
             other => {
@@ -189,6 +217,8 @@ pub fn build_product(
 fn print_package(
     paths: &mut ProductPaths,
     s: &str,
+    book: &Book,
+    chapters: &[Chapter],
     cfg: &ProductConfig,
     mode: Mode,
     table: &'static [crate::standards::Trim],
@@ -203,6 +233,51 @@ fn print_package(
     let wrap = template_svg(&tpl);
     std::fs::write(dir.join("cover-wrap.svg"), &wrap)
         .map_err(|e| format!("write cover-wrap: {e}"))?;
+
+    let mut pdf_notes = Vec::new();
+
+    // Flattened artwork PDF (RB-24): from a CoverDoc; best-effort (needs system TTF).
+    let paper_tok = match paper {
+        Paper::White => "white",
+        Paper::Cream => "cream",
+        Paper::Groundwood => "ground",
+        Paper::PremiumColor => "premium",
+    };
+    let mut cdoc = crate::coverdoc::CoverDoc::new(
+        &book.title,
+        &book.author,
+        mode.tag(),
+        trim.label,
+        paths.pages,
+        paper_tok,
+    );
+    cdoc.isbn = cfg.isbn.clone();
+    match crate::coverpdf::render_wrap_pdf(&cdoc, &dir.join("cover-wrap.pdf")) {
+        Ok(rep) => pdf_notes.push(format!(
+            "- cover-wrap.pdf ✓ ({} bytes, barcode {} bars, text {})",
+            rep.bytes,
+            rep.barcode_bars,
+            if rep.text_placed { "placed" } else { "skipped" }
+        )),
+        Err(e) => pdf_notes.push(format!("- cover-wrap.pdf ✗ SKIPPED: {e}")),
+    }
+
+    // Interior single-page PDF (RB-15 engine); best-effort too.
+    match crate::interior::render_interior_pdf(book, chapters, trim, &dir.join("interior.pdf")) {
+        Ok(bytes) => {
+            pdf_notes.push(format!(
+                "- interior.pdf ✓ ({bytes} bytes) — CONFIRM page count against a proof"
+            ));
+        }
+        Err(e) => pdf_notes.push(format!("- interior.pdf ✗ SKIPPED: {e}")),
+    }
+
+    // Copy the ebook into the package when built (self-contained upload kit).
+    if let Some(ep) = &paths.ebook
+        && ep.exists()
+    {
+        std::fs::copy(ep, dir.join(format!("{s}.epub"))).map_err(|e| e.to_string())?;
+    }
 
     let ean13 = match &cfg.isbn {
         Some(isbn) => {
@@ -220,7 +295,7 @@ fn print_package(
         crate::standards::hardcover_spine_approx(paths.pages, paper)
     };
     let manifest = PackageManifest {
-        format: mode.tag().to_string(),
+        format: mode.dir_name().to_string(),
         trim: trim.label.to_string(),
         pages: tpl.pages,
         paper: format!("{paper:?}"),
@@ -233,7 +308,12 @@ fn print_package(
     };
     let mj = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("manifest.json"), &mj).map_err(|e| e.to_string())?;
-    let cl = kdp_checklist(&manifest);
+    let mut cl = kdp_checklist(&manifest);
+    if !pdf_notes.is_empty() {
+        cl.push_str("\n## PDF artifacts\n\n");
+        cl.push_str(&pdf_notes.join("\n"));
+        cl.push('\n');
+    }
     std::fs::write(dir.join("CHECKLIST.md"), cl).map_err(|e| e.to_string())?;
 
     let zip_path = paths.dir.join(format!("{s}-{}.zip", mode.tag()));
@@ -305,7 +385,7 @@ pub fn kdp_checklist(m: &PackageManifest) -> String {
     ));
     match m.format.as_str() {
         "paperback" => s.push_str("- interior: single-page PDF, no spreads; upload cover PDF + interior PDF + ebook file separately in KDP\n"),
-        "hc" => s.push_str("- case laminate only (no jacket/cloth); 75–550 pages; art prints on the board — keep spine text out of the 0.4in hinge zones\n"),
+        "hardcover" => s.push_str("- case laminate only (no jacket/cloth); 75–550 pages; art prints on the board — keep spine text out of the 0.4in hinge zones\n"),
         _ => {}
     }
     s.push_str("- verify against the KDP-generated cover template before final export (spine constants are KDP's source of truth)\n");
