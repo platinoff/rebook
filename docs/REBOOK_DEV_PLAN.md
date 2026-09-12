@@ -157,7 +157,8 @@ KDP-generated template before close.
 
 **RB-16 RESOLVED → route B (owner pick).** Landed band 247 (rebook `1d09895`,
 ticket RB-16v2 done): `src/pdfwriter.rs` + `src/coverpdf.rs`, `cover-template
---pdf`. Deferred: **RB-16b** = Type0/CID TrueType embed (Cyrillic text in PDF),
-barcode vector runs into coverpdf, `front_image` raster (Flate/DCT inline),
-Tm rotation for spine text. **RB-17** (Ingram PDF/X-CMYK) now builds on
-pdfwriter (OutputIntent + CMYK `k` ops) — after RB-16b.
+--pdf`. Band 248 **RB-16b** done (rebook `687c76a`): `src/ttf.rs` TrueType
+parser + Type0/Identity-H embed (Cyrillic ✓, spine 90° ✓, vector EAN-13 ✓,
+Arial auto-picked around the stubbed times.ttf). Raster `front_image` + font
+subsetting → RB-16c. **RB-17** (Ingram PDF/X-CMYK) now builds on
+pdfwriter (OutputIntent + CMYK `k` ops) — after RB-16c.
