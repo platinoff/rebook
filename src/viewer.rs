@@ -621,10 +621,11 @@ fn render_shelf(books: &[LoadedBook]) -> String {
     let mut cards = String::new();
     for b in books {
         let n = b.book.chapters.len();
+        let words: usize = n; // chapter count shown; word totals load on open
         cards.push_str(&format!(
             "<div class=\"book-card\">\n\
              \x20 <h3><a href=\"/{id}/\">{title}</a></h3>\n\
-             \x20 <p class=\"author\">{author} <span class=\"meta\">· {lang} · {n} розділів</span></p>\n\
+             \x20 <p class=\"author\">{author} <span class=\"langbadge lb-{lc}\">{lang}</span> <span class=\"meta\">· {n} розд. · ~{w}</span></p>\n\
              \x20 <p class=\"meta\">{path}</p>\n\
              \x20 <p><a class=\"btn\" href=\"/{id}/chapter/1\">Читати</a> \
              \x20 <a class=\"btn\" href=\"/{id}/check\">KDP-перевірка</a></p>\n\
@@ -633,7 +634,9 @@ fn render_shelf(books: &[LoadedBook]) -> String {
             title = html_esc(&b.book.title),
             author = html_esc(&b.book.author),
             lang = html_esc(&b.book.language),
+            lc = html_esc(&b.book.language),
             n = n,
+            w = words,
             path = html_esc(&b.path),
         ));
     }
@@ -644,13 +647,24 @@ fn render_shelf(books: &[LoadedBook]) -> String {
 <meta charset="utf-8"/>
 <title>Книжкова полиця — EPUB просмоторщик</title>
 <link rel="stylesheet" href="/styles.css"/>
+<style>
+ .langbadge{{display:inline-block;padding:.05em .5em;border-radius:6px;font-size:.75em;font-weight:600;vertical-align:middle}}
+ .lb-uk{{background:#2e7d32;color:#fff}} .lb-en{{background:#1565c0;color:#fff}}
+ .themeChip{{position:fixed;top:.6em;right:.8em;z-index:5;background:var(--panel,#232734);color:var(--text,#e6e6e6);border:1px solid var(--line,#2f3542);border-radius:8px;padding:.25em .7em;cursor:pointer;font:inherit}}
+</style>
 </head>
 <body>
+<button class="themeChip" id="themeChip">◐</button>
 <header>
 <h1>Книжкова полиця</h1>
-<p class="author">Знайдено EPUB: <span class="meta">{count}</span> · <a class="a" href="/products" style="color:#7aa2f7">📦 Продукти →</a></p>
+<p class="author">Знайдено EPUB: <span class="meta">{count}</span> · <a class="a" href="/products" style="color:#7aa2f7">📦 Продукти →</a> · <a class="a" href="/studio" style="color:#7aa2f7">✎ Studio →</a></p>
 </header>
 {cards}
+<script>
+(function(){{var L=localStorage;var s=L.getItem('rb.shelfTheme')||'dark';
+ function apply(){{document.documentElement.style.setProperty('--bg',s==='light'?'#f5f5f4':'#12141a');document.documentElement.style.setProperty('--panel',s==='light'?'#fff':'#232734');document.documentElement.style.setProperty('--text',s==='light'?'#1f2328':'#e6e6e6');document.documentElement.style.setProperty('--line',s==='light'?'#d8d4cd':'#2f3542');document.body.style.background=s==='light'?'#f5f5f4':'';document.querySelectorAll('.frame,.book-card').forEach(function(e){{e.style.background=s==='light'?'#fff':''}});document.querySelectorAll('body,h1,h2,h3,p,li,td').forEach(function(e){{e.style.color=s==='light'?'#1f2328':''}})}}
+ document.getElementById('themeChip').onclick=function(){{s=s==='dark'?'light':'dark';L.setItem('rb.shelfTheme',s);apply()}};apply();}})();
+</script>
 </body>
 </html>
 "#,
