@@ -14,6 +14,7 @@ pub mod epub;
 pub mod interior;
 pub mod kdp;
 pub mod pdfwriter;
+pub mod preflight;
 pub mod shelf;
 pub mod standards;
 pub mod ttf;

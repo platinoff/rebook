@@ -67,6 +67,11 @@ impl Epub {
         self.get(name).and_then(|b| String::from_utf8(b).ok())
     }
 
+    /// Iterate all archive entries (path, bytes) — for cover extraction.
+    pub fn entries_iter(&self) -> impl Iterator<Item = &(String, Vec<u8>)> {
+        self.entries.iter()
+    }
+
     /// Names of all chapter pages matching `OEBPS/chapter-*.xhtml`.
     pub fn chapter_names(&self) -> Vec<String> {
         let mut v: Vec<String> = self
@@ -851,7 +856,7 @@ pub fn discover_books(dir: &std::path::Path) -> Result<Vec<LoadedBook>, String> 
                 let name = p.file_name().map(|s| s.to_string_lossy().into_owned());
                 if matches!(
                     name.as_deref(),
-                    Some(".git" | "target" | "node_modules" | ".cargo")
+                    Some(".git" | "target" | "node_modules" | ".cargo" | "products")
                 ) {
                     continue;
                 }

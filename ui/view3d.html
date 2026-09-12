@@ -3,96 +3,119 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>3D — rebook</title>
+<title>3D preflight — rebook</title>
 <link rel="stylesheet" href="/styles.css"/>
 <style>
- .rb-nav{position:sticky;top:0;z-index:7;display:flex;gap:.9em;align-items:center;padding:.5em .9em;background:#161922;border-bottom:1px solid #2f3542;font:600 14px/1.4 system-ui,'Segoe UI',sans-serif}
+ .rb-nav{position:sticky;top:0;z-index:7;display:flex;gap:.9em;align-items:center;padding:.5em .9em;background:#161922;border-bottom:1px solid #2f3542;font:600 14px/1.4 system-ui,'Segoe UI',sans-serif;color:#9aa0ac}
  .rb-nav .rb-brand{color:#7aa2f7;font-weight:800;letter-spacing:.04em}
  .rb-nav a{color:#9aa0ac;text-decoration:none;padding:.2em .1em;border-bottom:2px solid transparent}
  .rb-nav a:hover{color:#e6e6e6}
  .rb-nav a.active{color:#7aa2f7;border-bottom-color:#7aa2f7}
  .rb-nav .rb-home{margin-left:auto;font-weight:400;font-size:.85em}
  body{margin:0;background:#0c0f16;color:#e6e6e6;font:14px/1.5 system-ui,'Segoe UI',sans-serif}
- .wrap{padding:1em 1.4em}
+ .wrap{padding:1em 1.4em;display:grid;grid-template-columns:1fr 300px;gap:1em}
  .bar{display:flex;gap:.8em;align-items:end;flex-wrap:wrap;background:#161922;border:1px solid #2f3542;border-radius:12px;padding:.8em 1em;margin-bottom:.8em}
  label{display:flex;flex-direction:column;font-size:.8em;color:#9aa0ac;gap:.25em}
  select,input[type=number]{background:#12141a;color:#e6e6e6;border:1px solid #2f3542;border-radius:8px;padding:.4em .55em;font:inherit}
  .btn{background:#7aa2f7;color:#0b1020;border:0;border-radius:8px;padding:.5em 1em;font-weight:700;cursor:pointer}
  .btn.ghost{background:transparent;color:#7aa2f7;border:1px solid #7aa2f7}
  #readout{color:#9aa0ac;font-size:.85em;align-self:center}
- #stage{perspective:1700px;height:62vh;min-height:420px;background:radial-gradient(1200px 500px at 50% 20%,#171b26,#0b0e14);border:1px solid #2f3542;border-radius:14px;overflow:hidden;position:relative;cursor:grab;touch-action:none}
+ #stage{perspective:1700px;height:64vh;min-height:430px;background:radial-gradient(1200px 520px at 50% 18%,#171b26,#0b0e14);border:1px solid #2f3542;border-radius:14px;overflow:hidden;position:relative;cursor:grab;touch-action:none}
  #stage.dragging{cursor:grabbing}
  #book3d{position:absolute;left:50%;top:50%;transform-style:preserve-3d}
  #hint{position:absolute;bottom:.6em;width:100%;text-align:center;color:#5f6775;margin:0;font-size:.85em}
+ #warns{background:#161922;border:1px solid #2f3542;border-radius:12px;padding:.8em 1em;height:fit-content;max-height:78vh;overflow:auto}
+ #warns h3{margin:.1em 0 .6em;font-size:.95em;color:#e6e6e6}
+ #warns .w{display:flex;gap:.5em;padding:.35em 0;border-top:1px solid #212635;font-size:.85em;line-height:1.4}
+ #warns .ok{color:#3fb950} #warns .bad{color:#f85149}
+ .ovl{position:absolute;inset:0;pointer-events:none}
+ .faceImg{position:absolute;inset:0;width:100%;height:100%;object-fit:fill}
 </style>
 </head>
 <body>
 <!--rbnav-->
 <div class="wrap">
- <div class="bar">
-  <label>📚 Книга<select id="bookSel" style="min-width:15em"><option>—</option></select></label>
-  <label>Формат<select id="fmt"><option value="hc">Hardcover (case)</option><option value="pb">Paperback</option><option value="ebook">eBook (front)</option></select></label>
-  <label>Trim<select id="trim"></select></label>
-  <label>Сторінки<input id="pages" type="number" value="300" min="24" max="828" step="2" style="width:7em"/></label>
-  <button class="btn" id="go">Показати 3D</button>
-  <button class="btn ghost" id="reset">скинути кут</button>
-  <span id="readout"></span>
+ <div>
+  <div class="bar">
+   <label>📚 Книга (EPUB із полиці)<select id="bookSel" style="min-width:15em"><option>—</option></select></label>
+   <label>Формат<select id="fmt"><option value="hc">Hardcover (case)</option><option value="pb">Paperback</option><option value="ebook">eBook front</option></select></label>
+   <label>Trim<select id="trim"></select></label>
+   <label>Сторінки<input id="pages" type="number" value="300" min="24" max="828" step="2" style="width:7em"/></label>
+   <label style="gap:0"><input id="guides" type="checkbox" checked style="width:auto"/> накладки KDP</label>
+   <button class="btn" id="go">🖼 Показати на стенді</button>
+   <button class="btn ghost" id="reset">скинути кут</button>
+   <span id="readout"></span>
+  </div>
+  <div id="stage"><div id="book3d"></div><p id="hint">тягни мишею — обертати · колесо — зум · галочка «накладки» вмикає bleed/safe/fold-гади</p></div>
  </div>
- <div id="stage"><div id="book3d"></div><p id="hint">тягни мишею — обертати · колесо — зум · Esc — скинути вибір</p></div>
+ <aside id="warns"><h3>⚠ Preflight</h3><div class="w"><span class="muted">обери книгу — звіт KDP-перевірок з'явиться тут</span></div></aside>
 </div>
 <script>
 const $=s=>document.querySelector(s);
-const TRIMS={pb:["5x8","5.5x8.5","6x9","6.14x9.21","7x10","8.5x11"],hc:["5.5x8.5","6x9","6.14x9.21","7x10","8.25x11"]};
-let d3=null,rx=-14,ry=-28,s3=40,book=null;
+const TRIMS={pb:["5x8","5.06x7.81","5.25x8","5.5x8.5","6x9","6.14x9.21","6.69x9.61","7x10","7.5x9.25","8x10","8.25x8.25","8.5x11"],
+ hc:["5.5x8.5","6x9","6.14x9.21","7x10","8.25x11"]};
+let pf=null,rx=-14,ry=-28,s3=40,books=[];
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 async function boot(){
- try{
-  const books=await (await fetch('/api/books')).json();
-  const pre=new URLSearchParams(location.search).get('book');
-  $('#bookSel').innerHTML=books.map(b=>`<option value="${b.id}">${esc(b.title)} · ${b.language} · ${b.chapters} р.</option>`).join('')||'<option value="">— немає книг —</option>';
-  if(books.length){book=books.find(b=>b.id===pre)||books[0];$('#bookSel').value=book.id;}
- }catch(e){}
+ try{books=await (await fetch('/api/books')).json();}catch(e){books=[];}
+ const pre=new URLSearchParams(location.search).get('book');
+ $('#bookSel').innerHTML=books.length?books.map(b=>`<option value="${b.id}">${esc(b.title)} · ${b.language} · ${b.chapters} р.</option>`).join(''):'<option value="">— немає книг на полиці —</option>';
+ if(books.length){const b=books.find(x=>x.id===pre)||books[0];$('#bookSel').value=b.id;}
  fillTrims();go();
 }
-function fillTrims(){const m=$('#fmt').value==='hc'?'hc':'pb';
- $('#trim').innerHTML=(TRIMS[m]).map(t=>'<option'+(t==(book&&book.id? '6x9':'6x9')?' selected':'')+'>'+t+'</option>').join('');}
+function fillTrims(){const m=$('#fmt').value==='hc'?'hc':'pb';const cur=$('#trim').value;
+ $('#trim').innerHTML=TRIMS[m].map(t=>'<option'+(t===cur?' selected':(t==='6x9'&&TRIMS[m].includes('6x9')?' selected':''))+'>'+t+'</option>').join('');}
 $('#fmt').onchange=()=>{fillTrims();go();};
-$('#trim').onchange=go;$('#pages').onchange=go;
-$('#bookSel').onchange=async()=>{const id=$('#bookSel').value;
- try{book=(await (await fetch('/api/books')).json()).find(b=>b.id===id);}catch(e){}
- go();};
+$('#bookSel').onchange=go;$('#trim').onchange=go;$('#pages').onchange=go;$('#guides').onchange=()=>stage();
 $('#go').onclick=go;
-$('#reset').onclick=()=>{rx=-14;ry=-28;s3=book&&$('#fmt').value==='ebook'?60:40;stage();};
+$('#reset').onclick=()=>{rx=-14;ry=-28;stage();};
 async function go(){
- const mode=$('#fmt').value;
- const p=new URLSearchParams({mode:mode==='ebook'?'pb':mode,trim:$('#trim').value,pages:$('#pages').value,paper:'white'});
- try{d3=await (await fetch('/api/cover/dims?'+p)).json();}catch(e){$('#readout').textContent='geometry err';return;}
- $('#readout').textContent=(mode==='hc'?'hardcover case · ':'paperback · ')+'spine '+d3.spine_in.toFixed(4)+'″ · '+d3.trim;
- if(mode==='ebook')$('#readout').textContent='ebook front · 1600×2560';
- s3=Math.min(s3,Math.floor(340/d3.trim_h_in));stage();}
-function face(w,h,bg,html,tf){return '<div style="position:absolute;left:50%;top:50%;width:'+w+'px;height:'+h+'px;transform:translate(-50%,-50%) '+tf+';background:'+bg+';display:flex;align-items:center;justify-content:center;text-align:center;overflow:hidden;color:#fff;font-family:Georgia,serif;box-shadow:inset 0 0 34px rgba(0,0,0,.35)">'+(html||'')+'</div>';}
+ const id=$('#bookSel').value;const mode=$('#fmt').value;
+ if(!id){$('#readout').textContent='немає книг';return;}
+ const p=new URLSearchParams({mode,trim:$('#trim').value,pages:$('#pages').value||300,paper:'white'});
+ try{const r=await fetch(`/api/books/${id}/preflight?`+p);pf=await r.json();if(!r.ok)throw new Error(pf.detail||r.status);}catch(e){$('#readout').textContent='preflight err';return;}
+ const nOK=(pf.warnings||[]).filter(w=>!w.ok).length;
+ $('#readout').textContent=(mode==='hc'?'hardcover · ':mode==='pb'?'paperback · ':'ebook · ')+'spine '+pf.spine_in.toFixed(4)+'″ · '+(nOK?nOK+' ⚠ увага':'усе ✓');
+ renderWarns();s3=Math.min(60,Math.floor(300/pf.trim_h_in));stage();
+}
+function renderWarns(){const w=$('#warns');
+ w.innerHTML='<h3>⚠ Preflight ('+(pf.warnings.filter(x=>!x.ok).length)+')</h3>'+
+ pf.warnings.map(x=>`<div class="w"><span class="${x.ok?'ok':'bad'}">${x.ok?'✓':'✗'}</span><span>${esc(x.detail)}</span></div>`).join('');}
+function guidesSVG(wpx,hpx,trimW,trimH){
+ const s=300; // px per inch at scale s3 handled by caller: pass inches→px already scaled
+ const bpx=(0.125*s),spx=(0.25*s);
+ return `<svg class="ovl" viewBox="0 0 ${wpx} ${hpx}" preserveAspectRatio="none">
+  <rect x="${bpx}" y="${bpx}" width="${wpx-2*bpx}" height="${hpx-2*bpx}" fill="none" stroke="#e0a03080" stroke-width="2" stroke-dasharray="10,8"/>
+  <rect x="${spx}" y="${spx}" width="${wpx-2*spx}" height="${hpx-2*spx}" fill="none" stroke="#3fb95090" stroke-width="2" stroke-dasharray="14,8"/>
+  <line x1="${wpx/2}" y1="0" x2="${wpx/2}" y2="${hpx}" stroke="#7aa2f750" stroke-width="1.5" stroke-dasharray="6,8"/>
+  <text x="${spx+6}" y="${hpx-spx-8}" fill="#3fb95090" font-size="14" font-family="system-ui">safe 0.25″</text>
+  <text x="${bpx+6}" y="20" fill="#e0a03090" font-size="14" font-family="system-ui">bleed 0.125″</text></svg>`;}
+function face(w,h,bg,inner,tf){return '<div style="position:absolute;left:50%;top:50%;width:'+w+'px;height:'+h+'px;transform:translate(-50%,-50%) '+tf+';background:'+bg+';overflow:hidden;color:#fff;font-family:Georgia,serif;box-shadow:inset 0 0 34px rgba(0,0,0,.35)">'+(inner||'')+'</div>';}
+function coverInner(w,h){
+ if(pf.cover&&pf.cover.data_uri) return '<img class="faceImg" src="'+pf.cover.data_uri+'" alt="cover"/>';
+ return '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;text-align:center;padding:1em"><div><div style="font-size:'+Math.max(12,Math.min(38,s3*1.0))+'px;font-weight:700">'+esc(pf.title)+'</div><div style="margin-top:.6em;opacity:.85;font-size:'+Math.max(10,s3*.5)+'px">'+esc(pf.author)+'</div></div></div>';}
 function stage(){
- const b=$('#book3d');if(!d3){b.innerHTML='';return;}
- const ebook=$('#fmt').value==='ebook';
- const w=d3.trim_w_in*s3,h=d3.trim_h_in*s3,d=Math.max(6,d3.spine_in*s3);
+ const b=$('#book3d');if(!pf){b.innerHTML='';return;}
+ const g=$('#guides').checked;
+ const w=pf.trim_w_in*s3,h=pf.trim_h_in*s3,d=Math.max(6,pf.spine_in*s3);
  b.style.width=w+'px';b.style.height=h+'px';b.style.marginLeft=(-w/2)+'px';b.style.marginTop=(-h/2)+'px';
- const t=book?book.title:d3.trim,a=book?book.author:'';
- const front='<div style="padding:1.2em;max-width:88%"><div style="font-size:'+Math.max(12,Math.min(38,s3*1.0))+'px;line-height:1.25;font-weight:700">'+esc(t)+'</div><div style="margin-top:.8em;opacity:.85;font-size:'+Math.max(10,s3*.5)+'px">'+esc(a)+'</div></div>';
- let html=face(w,h,'#1d2733',front,'rotateY(0deg) translateZ('+(d/2)+'px)');
- if(!ebook){
-  html+=face(w,h,'#16202c','<div style="opacity:.6;font-size:'+Math.max(10,s3*.5)+'px">'+esc(a)+'</div>','rotateY(180deg) translateZ('+(d/2)+'px)');
-  html+=face(d,h,'#16202c','<div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:'+Math.min(d*.6,Math.max(9,s3*.5))+'px;white-space:nowrap;overflow:hidden;max-height:92%">'+esc(t)+' — '+esc(a)+'</div>','rotateY(-90deg) translateZ('+(w/2)+'px)');
-  html+=face(w,d,'#d8d4c8','','rotateX(90deg) translateZ('+(h/2)+'px)');
-  html+=face(w,d,'#b9b5a8','','rotateX(-90deg) translateZ('+(h/2)+'px)');
-  html+=face(d,h,'repeating-linear-gradient(90deg,#f4f1e8 0 2px,#c9c4b4 2px 4px)','','rotateY(90deg) translateZ('+(w/2)+'px)');
- }
- b.innerHTML=html;pose();}
+ const ov=g?guidesSVG(w,h,pf.trim_w_in,pf.trim_h_in):'';
+ const front=face(w,h,'#1d2733',coverInner(w,h)+ov,'rotateY(0deg) translateZ('+(d/2)+'px)');
+ if($('#fmt').value==='ebook'){$('#book3d').innerHTML=front;pose();return;}
+ const backTxt='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;opacity:.9"><div style="font-size:'+Math.max(10,s3*.5)+'px">'+esc(pf.author)+'</div><div style="margin-top:auto;margin-bottom:1em;font-size:10px;opacity:.5">автозаливка · перевір safe-зону</div></div>';
+ const back=face(w,h,pf.back_color,backTxt+ov,'rotateY(180deg) translateZ('+(d/2)+'px)');
+ const spineTxt='<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:'+Math.min(d*.6,Math.max(9,s3*.5))+'px;white-space:nowrap;overflow:hidden;max-height:90%">'+esc(pf.title)+' — '+esc(pf.author)+'</div></div>'+(g?'<svg class="ovl" viewBox="0 0 '+d+' '+h+'" preserveAspectRatio="none"><line x1="2" y1="0" x2="2" y2="'+h+'" stroke="#e0409a90" stroke-width="2" stroke-dasharray="8,6"/><line x1="'+(d-2)+'" y1="0" x2="'+(d-2)+'" y2="'+h+'" stroke="#e0409a90" stroke-width="2" stroke-dasharray="8,6"/></svg>':'');
+ const spine=face(d,h,pf.spine_color,spineTxt,'rotateY(-90deg) translateZ('+(w/2)+'px)');
+ const head=face(w,d,'#d8d4c8','','rotateX(90deg) translateZ('+(h/2)+'px)');
+ const tail=face(w,d,'#b9b5a8','','rotateX(-90deg) translateZ('+(h/2)+'px)');
+ const edge=face(d,h,'repeating-linear-gradient(90deg,#f4f1e8 0 2px,#c9c4b4 2px 4px)','','rotateY(90deg) translateZ('+(w/2)+'px)');
+ b.innerHTML=front+back+spine+head+tail+edge;pose();}
 function pose(){$('#book3d').style.transform='rotateX('+rx+'deg) rotateY('+ry+'deg)';}
 (function(){const st=$('#stage');let drag=null;
  st.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY,ry,rx];st.classList.add('dragging');st.setPointerCapture(e.pointerId);});
  st.addEventListener('pointermove',e=>{if(!drag)return;ry=drag[2]+(e.clientX-drag[0])*.45;rx=Math.max(-85,Math.min(85,drag[3]-(e.clientY-drag[1])*.35));pose();});
  addEventListener('pointerup',()=>{drag=null;st.classList.remove('dragging');});
- st.addEventListener('wheel',e=>{e.preventDefault();s3=Math.max(14,Math.min(90,s3*(e.deltaY<0?1.08:.93)));stage();},{passive:false});
+ st.addEventListener('wheel',e=>{e.preventDefault();s3=Math.max(14,Math.min(120,s3*(e.deltaY<0?1.08:.93)));stage();},{passive:false});
 })();
 boot();
 </script>

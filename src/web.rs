@@ -57,6 +57,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(api_product_download),
         )
         .route("/api/books", get(api_books))
+        .route("/api/books/{id}/preflight", get(api_book_preflight))
         .route("/api/cover-template", get(api_cover_template))
         .route("/api/drafts", get(api_drafts_list).post(api_drafts_create))
         .route(
@@ -127,6 +128,39 @@ async fn products_page() -> Html<String> {
 /// RB-28: dedicated 3D viewer with a book picker (discoverability fix).
 async fn view3d_page() -> Html<String> {
     Html(crate::viewer::inject_nav(VIEW3D_HTML, "/view3d"))
+}
+
+/// RB-29 pre-KDP preflight for one shelf book: `?mode=hc|pb|ebook&trim=6x9&paper=white&pages=456`.
+async fn api_book_preflight(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(b) = st.snapshot().into_iter().find(|b| b.id == id) else {
+        return (StatusCode::NOT_FOUND, "no such book").into_response();
+    };
+    let epub = match crate::viewer::Epub::from_path(&b.path) {
+        Ok(e) => e,
+        Err(e) => return draft_err(e),
+    };
+    let mode = match q.get("mode").map(String::as_str) {
+        Some("pb") | Some("paperback") => "paperback",
+        Some("ebook") => "ebook",
+        _ => "hardcover",
+    };
+    let trim = q.get("trim").map(String::as_str).unwrap_or("6x9");
+    let paper = match q.get("paper").map(String::as_str).unwrap_or("white") {
+        "cream" => Paper::Cream,
+        "ground" => Paper::Groundwood,
+        "premium" => Paper::PremiumColor,
+        _ => Paper::White,
+    };
+    let pages: u32 = q.get("pages").and_then(|s| s.parse().ok()).unwrap_or(300);
+    let pf = crate::preflight::run(&epub, &b.book, mode, trim, paper, pages);
+    match serde_json::to_string(&pf) {
+        Ok(json) => text_response(StatusCode::OK, "application/json; charset=utf-8", json),
+        Err(e) => draft_err(e.to_string()),
+    }
 }
 
 /// JSON list of built products (folders under `products/`).
