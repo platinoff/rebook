@@ -162,3 +162,9 @@ parser + Type0/Identity-H embed (Cyrillic ✓, spine 90° ✓, vector EAN-13 ✓
 Arial auto-picked around the stubbed times.ttf). Raster `front_image` + font
 subsetting → RB-16c. **RB-17** (Ingram PDF/X-CMYK) now builds on
 pdfwriter (OutputIntent + CMYK `k` ops) — after RB-16c.
+
+**Wave-3 status (2026-09-12):** RB-15 ✅ `ce50d4c` · RB-16v2 ✅ `1d09895` ·
+RB-16b ✅ `687c76a` · **RB-17 ✅ `4e82549`** — PDF/X-1a CMYK wrapper done
+(OutputIntent/XMP/TrimBox/ink-TAC, `--pdf --cmyk`; strict FOGRA39 ICC via
+`REBOOK_ICC_CMYK`, not shipped). Remaining polish: RB-16c raster+subset,
+page-numbers in interior, live rescan of /products.
