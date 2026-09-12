@@ -787,6 +787,14 @@ pub fn discover_books(dir: &std::path::Path) -> Result<Vec<LoadedBook>, String> 
         for ent in entries.flatten() {
             let p = ent.path();
             if p.is_dir() {
+                // Never walk build/tooling dirs — their *.epub are test artifacts.
+                let name = p.file_name().map(|s| s.to_string_lossy().into_owned());
+                if matches!(
+                    name.as_deref(),
+                    Some(".git" | "target" | "node_modules" | ".cargo")
+                ) {
+                    continue;
+                }
                 stack.push(p);
                 continue;
             }
@@ -798,13 +806,33 @@ pub fn discover_books(dir: &std::path::Path) -> Result<Vec<LoadedBook>, String> 
         }
     }
     out.sort_by(|a, b| a.book.title.cmp(&b.book.title));
-    // De-duplicate slugs: two books titled the same get `id`, `id-2`, `id-3`.
-    let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
-    for b in &mut out {
-        let n = seen.entry(b.id.clone()).or_insert(0);
-        *n += 1;
-        if *n > 1 {
-            b.id = format!("{}-{n}", b.id);
+    // De-duplicate slugs: same title in different languages gets language
+    // tags (`rust-uk`/`rust-en`); same title + language falls back to
+    // `-2`, `-3` on top of the first occurrence.
+    {
+        let mut groups: std::collections::HashMap<String, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, b) in out.iter().enumerate() {
+            groups.entry(b.id.clone()).or_default().push(i);
+        }
+        for id in groups.keys() {
+            let idxs = &groups[id];
+            if idxs.len() < 2 {
+                continue;
+            }
+            let langs: std::collections::HashSet<String> =
+                idxs.iter().map(|&i| out[i].book.language.clone()).collect();
+            if langs.len() == idxs.len() {
+                for &i in idxs {
+                    let base = out[i].id.clone();
+                    let lang = out[i].book.language.clone();
+                    out[i].id = format!("{base}-{lang}");
+                }
+            } else {
+                for (n, &i) in idxs.iter().enumerate().skip(1) {
+                    out[i].id = format!("{id}-{}", n + 1);
+                }
+            }
         }
     }
     Ok(out)
@@ -817,22 +845,19 @@ fn discover_one(
 ) -> Result<LoadedBook, String> {
     let epub = Epub::from_path(&path.to_string_lossy())?;
     let parent = path.parent();
-    // A book.json may sit next to the epub or at the scan root.
-    let mut json_paths = vec![];
-    if let Some(pp) = parent {
-        json_paths.push(pp.join("book.json"));
-    }
-    if let Some(r) = root {
-        json_paths.push(r.join("book.json"));
-    }
-
-    // Prefer the last (root) book.json for the canonical book, then parent's.
+    // Nearest `book.json` wins: walk up from the epub's folder toward the scan
+    // root; the first existing file labels the book.
     let mut book = None;
-    for jp in json_paths {
-        if let Ok(b) = crate::load_book(&jp) {
+    let mut dir = parent.map(|p| p.to_path_buf());
+    while let Some(d) = dir {
+        if let Ok(b) = crate::load_book(d.join("book.json")) {
             book = Some(b);
             break;
         }
+        if root.is_some_and(|r| d == r.to_path_buf()) {
+            break; // reached the scan root without a book.json
+        }
+        dir = d.parent().map(|p| p.to_path_buf());
     }
     let book = match book {
         Some(b) => b,
