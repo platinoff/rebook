@@ -81,7 +81,8 @@
   <button id="applyBtn" class="ghost">Застосувати переміщення</button>
   <span id="safeBadge" class="meta"></span>
   <button id="svgBtn" class="ghost">SVG ↓</button>
-  <button id="pngBtn" class="ghost">PNG ↓</button>
+   <button id="pngBtn" class="ghost">PNG ↓</button>
+   <label class="meta" style="gap:.2em">PNG×<select id="pngScale" style="padding:.15em .3em"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option></select></label>
   <span id="layBox" class="meta" style="display:flex;gap:.5em;align-items:center"></span>
   <span id="sstat" class="meta"></span>
  </div>
@@ -385,12 +386,14 @@ $('#v3Reset').onclick=()=>{rx=-14;ry=-28;s3=42;build3d();};
  })();
 $('#svgBtn').onclick=async()=>{const svg=await render();if(!svg)return;
  const a=document.createElement('a');a.href='data:image/svg+xml;utf8,'+encodeURIComponent(svg);a.download=(doc?doc.mode:'cover')+'-cover.svg';a.click();};
-$('#pngBtn').onclick=async()=>{const svg=await render();if(!svg)return;
- const img=new Image();img.onload=()=>{const c=document.createElement('canvas');
-  c.width=img.naturalWidth||svg.match(/width="(\d+)"/)[1]*1;c.height=img.naturalHeight||svg.match(/height="(\d+)"/)[1]*1;
-  c.getContext('2d').drawImage(img,0,0);
-  const a=document.createElement('a');a.href=c.toDataURL('image/png');a.download='cover-300dpi.png';a.click();};
- img.src='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(svg)));};
+ $('#pngBtn').onclick=async()=>{const svg=await render();if(!svg)return;
+  const sc=Math.max(1,Math.min(3,+(($('#pngScale')||{}).value)||1));
+  const up=sc>1?svg.replace(/<svg[^>]*>/,t=>t.replace(/(width|height)="([0-9.]+)"/g,(x,p,v)=>p+'="'+(Math.round(+v*sc))+'"')):svg;
+  const img=new Image();img.onload=()=>{const c=document.createElement('canvas');
+   c.width=img.naturalWidth||+up.match(/<svg[^>]*width="(\d+)"/)[1];c.height=img.naturalHeight||+up.match(/<svg[^>]*height="(\d+)"/)[1];
+   c.getContext('2d').drawImage(img,0,0);
+   const a=document.createElement('a');a.href=c.toDataURL('image/png');a.download=(sc>1?'cover-'+sc+'x-':'cover-')+(doc?(doc.trim||doc.mode):'')+'-300dpi.png';a.click();};
+  img.src='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(up)));};
 boot();
 </script>
 </body>

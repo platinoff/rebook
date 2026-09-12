@@ -209,6 +209,37 @@ pub enum BlockKind {
     Rule,
 }
 
+/// Margins + footer page numbers on every page except the half-title.
+/// genpdf 0.2's `SimplePageDecorator` is header-only, hence this custom one.
+struct NumberedFooter {
+    page: usize,
+    margin: genpdf::Mm,
+    body_h: f64,
+    footer_y: f64,
+}
+
+impl genpdf::PageDecorator for NumberedFooter {
+    fn decorate_page<'a>(
+        &mut self,
+        context: &genpdf::Context,
+        mut area: genpdf::render::Area<'a>,
+        style: genpdf::style::Style,
+    ) -> Result<genpdf::render::Area<'a>, genpdf::error::Error> {
+        self.page += 1;
+        area.add_margins(self.margin);
+        if self.page > 1 {
+            let mut body = area.clone();
+            body.set_height(genpdf::Mm::from(self.body_h));
+            let mut num = genpdf::elements::Paragraph::new(self.page.to_string());
+            num.set_alignment(genpdf::Alignment::Center);
+            area.add_offset((0.0, self.footer_y));
+            num.render(context, area, style.with_font_size(9))?;
+            return Ok(body);
+        }
+        Ok(area)
+    }
+}
+
 /// Render the interior PDF: one page per chapter start, trim `page` size,
 /// margins from the KDP gutter table, embedded fonts. Returns file bytes.
 pub fn render_interior_pdf(
@@ -241,9 +272,12 @@ pub fn render_interior_pdf(
         genpdf::Mm::from(w_mm),
         genpdf::Mm::from(h_mm),
     ));
-    let mut deco = genpdf::SimplePageDecorator::new();
-    deco.set_margins(genpdf::Mm::from(margin_mm));
-    doc.set_page_decorator(deco);
+    doc.set_page_decorator(NumberedFooter {
+        page: 0,
+        margin: genpdf::Mm::from(margin_mm),
+        body_h: h_mm - 2.0 * margin_mm - 6.0,
+        footer_y: h_mm - 2.0 * margin_mm - 6.0,
+    });
 
     // half-title page
     doc.push(genpdf::elements::Break::new(8));
@@ -372,5 +406,38 @@ mod tests {
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.starts_with(b"%PDF"), "not a PDF");
         assert!(size > 3000, "suspiciously small pdf: {size}");
+    }
+
+    #[test]
+    fn numbered_footer_multi_page_grows() {
+        if discover_fonts().is_err() {
+            eprintln!("no system TTF — skipping PDF render test");
+            return;
+        }
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target");
+        let trim = crate::standards::find_trim(crate::standards::PAPERBACK_TRIMS, "6x9").unwrap();
+        let one = dir.join("interior-1p.pdf");
+        let (b1, c1) = mini();
+        let s1 = render_interior_pdf(&b1, &c1, trim, &one).unwrap();
+        let many = dir.join("interior-mp.pdf");
+        let (mut b2, mut c2) = mini();
+        b2.chapters.clear();
+        c2.clear();
+        for n in 1..=4u32 {
+            let content = "слово ".repeat(2500);
+            c2.push(Chapter {
+                number: n,
+                title: format!("Розділ {n}"),
+                content,
+            });
+            b2.chapters.push(ChapterMeta {
+                number: n,
+                title: format!("Розділ {n}"),
+                file: format!("c{n}.md"),
+            });
+        }
+        let s2 = render_interior_pdf(&b2, &c2, trim, &many).unwrap();
+        assert!(s2 > s1 + 500, "multi-page {s2} !> single {s1}");
+        assert!(std::fs::read(&many).unwrap().starts_with(b"%PDF"));
     }
 }
