@@ -147,3 +147,10 @@ types — do not mix). `genpdf::render` Area exposes `print_str`, `draw_line`,
 `add_image` — NO filled-rect/rotation → cover-wrap artwork should go through
 **svg2pdf + classic printpdf 0.3.4 (matching genpdf's dependency)** or a
 custom `Element` painting rects as dense `draw_line` fills; decision in-band.
+
+**RB-16 BLOCKED-pending-choice (band 246):** Route **A** = printpdf 0.12.8
++ `svg2pdf` feature feeding our composed cover SVG (risk: font resolution for
+Georgia/Cyrillic + data-URI raster). Route **B** = own minimal PDF writer
+(~300 LOC: rects `re f`, BT/Td text, barcode as path fills, inline images)
+— full control, vector-only first. Gate either way: visual diff vs the
+KDP-generated template before close.
