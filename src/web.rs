@@ -61,7 +61,11 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/drafts/{id}",
             get(api_draft_get).delete(api_draft_delete),
         )
-        .route("/api/drafts/{id}/chapter/{num}", put(api_draft_put_chapter))
+        .route(
+            "/api/drafts/{id}/chapter/{num}",
+            put(api_draft_put_chapter).delete(api_draft_delete_chapter),
+        )
+        .route("/api/drafts/{id}/reorder", put(api_draft_reorder))
         .route("/api/drafts/{id}/promote", post(api_draft_promote))
         .route(
             "/api/drafts/{id}/cover",
@@ -408,6 +412,39 @@ struct AiIn {
     context: String,
     #[serde(default)]
     stream: bool,
+}
+
+async fn api_draft_delete_chapter(
+    State(st): State<Arc<AppState>>,
+    AxPath((id, num)): AxPath<(String, u32)>,
+) -> Response {
+    match crate::drafts::delete_chapter(&st.drafts_root, &id, num) {
+        Ok(meta) => text_response(
+            StatusCode::OK,
+            "application/json; charset=utf-8",
+            meta.to_json(),
+        ),
+        Err(e) => draft_err(e),
+    }
+}
+
+async fn api_draft_reorder(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+    body: String,
+) -> Response {
+    let order: Vec<u32> = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(e) => return draft_err(format!("body must be [1,3,2…]: {e}")),
+    };
+    match crate::drafts::reorder_chapters(&st.drafts_root, &id, &order) {
+        Ok(meta) => text_response(
+            StatusCode::OK,
+            "application/json; charset=utf-8",
+            meta.to_json(),
+        ),
+        Err(e) => draft_err(e),
+    }
 }
 
 /// `POST /api/cover` with a CoverDoc JSON → composed artwork SVG.

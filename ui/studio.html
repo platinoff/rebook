@@ -4,154 +4,297 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Studio — rebook</title>
-<link rel="stylesheet" href="/styles.css"/>
 <style>
- .grid{display:grid;grid-template-columns:280px 1fr;gap:1.2em;}
- .col{background:#1b1e27;border:1px solid #2f3542;border-radius:10px;padding:1em;}
- textarea{width:100%;min-height:56vh;background:#12141a;color:#e6e6e6;border:1px solid #2f3542;border-radius:8px;padding:.8em;font-family:monospace;font-size:14px;}
- li{margin:.35em 0;}
- button{background:#7aa2f7;color:#12141a;border:0;border-radius:6px;padding:.45em 1em;font-weight:bold;cursor:pointer;margin:.2em .4em .2em 0;}
- button.ghost{background:transparent;color:#7aa2f7;border:1px solid #7aa2f7;}
- input,select{background:#12141a;color:#e6e6e6;border:1px solid #2f3542;border-radius:6px;padding:.4em .6em;font:inherit;}
- .bar{display:flex;gap:.5em;align-items:center;margin-bottom:.6em;}
- #status{color:#9aa0ac;font-size:.9em;min-height:1.2em;}
- .saved{color:#3fb950;} .err{color:#f85149;}
+ :root{--bg:#12141a;--panel:#1b1e27;--line:#2f3542;--txt:#e6e6e6;--mut:#9aa0ac;--acc:#7aa2f7;--ok:#3fb950;--warn:#d29922;--bad:#f85149}
+ body.light{--bg:#f5f5f4;--panel:#fff;--line:#d8d4cd;--txt:#1f2328;--mut:#6b6b66;--acc:#3b6fd0;--ok:#1a7f37;--warn:#9a6700;--bad:#c62828}
+ *{box-sizing:border-box}
+ html,body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif;height:100%}
+ header{display:flex;gap:.7em;align-items:center;padding:.55em 1em;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+ header h1{font-size:1.05em;margin:0;color:var(--acc)}
+ a{color:var(--acc);text-decoration:none}
+ .grow{flex:1}
+ .pill{border:1px solid var(--line);border-radius:999px;padding:.18em .8em;font-size:.85em;color:var(--mut)}
+ .pill.saving{border-color:var(--warn);color:var(--warn)}
+ .pill.saved{border-color:var(--ok);color:var(--ok)}
+ .pill.failed{border-color:var(--bad);color:var(--bad);cursor:pointer}
+ .chip{cursor:pointer;user-select:none}
+ #goals{display:flex;gap:.9em;align-items:center;font-size:.85em;color:var(--mut)}
+ #goals input{width:5.5em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.2em .4em}
+ main{display:grid;grid-template-columns:250px 1fr 420px;gap:0;height:calc(100vh - 49px)}
+ body.norail main{grid-template-columns:1fr 420px}
+ body.noprev main{grid-template-columns:250px 1fr}
+ body.norail.noprev main{grid-template-columns:1fr}
+ aside{border-left:1px solid var(--line);overflow:auto;background:var(--bg)}
+ aside.rail{border-left:0;border-right:1px solid var(--line);padding:.6em;background:var(--panel)}
+ #chapList{list-style:none;margin:.4em 0;padding:0}
+ #chapList li{display:flex;gap:.4em;align-items:center;padding:.35em .4em;border-radius:8px;cursor:pointer;font-size:.92em}
+ #chapList li:hover{background:var(--bg)}
+ #chapList li.sel{background:#123;outline:1px solid var(--acc)}
+ body.light #chapList li.sel{background:#e8f0fe}
+ #chapList li.drag{opacity:.35}
+ #chapList li .grip{color:var(--mut);cursor:grab;letter-spacing:-2px}
+ #chapList li .ttl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ #chapList li .wc{color:var(--mut);font-size:.8em}
+ #chapList li .del{visibility:hidden;color:var(--bad)}
+ #chapList li:hover .del{visibility:visible}
+ .railhead{display:flex;align-items:center;gap:.4em}
+ .btn{background:var(--acc);border:0;color:#0b1020;border-radius:6px;padding:.3em .8em;font-weight:600;cursor:pointer}
+ .btn.ghost{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+ .bar{display:flex;gap:.25em;padding:.45em .6em;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap;position:sticky;top:0;z-index:2}
+ .bar button{background:none;border:1px solid transparent;border-radius:6px;color:var(--txt);font:600 13px/1 ui-monospace,Consolas,monospace;padding:.35em .55em;cursor:pointer}
+ .bar button:hover{border-color:var(--line);background:var(--bg)}
+ .bar .sep{width:1px;background:var(--line);margin:.3em .25em}
+ #titleIn{flex:1;min-width:8em;background:none;border:0;color:var(--txt);font:600 15px/1.4 system-ui;outline:none;padding:.35em .3em}
+ textarea#md{width:100%;border:0;outline:none;resize:none;background:var(--bg);color:var(--txt);
+  font:15px/1.75 Georgia,serif;padding:1.6em 2em;min-height:calc(100vh - 98px)}
+ textarea#md:focus{outline:none}
+ .editwrap{overflow:auto;height:100%}
+ #prev{padding:1.4em 1.8em;font-family:Georgia,serif;color:var(--txt)}
+ #prev h2{font-size:1.35em;margin:.1em 0 .8em;letter-spacing:.02em}
+ #prev p{margin:.7em 0;text-align:justify;max-width:62ch}
+ #prev blockquote{margin:.9em 0;padding:.1em 0 .1em 1.1em;border-left:3px solid var(--acc);font-style:italic;color:var(--mut)}
+ #prev pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.7em;font-size:.85em;overflow:auto}
+ .muted{color:var(--mut)}
+ .stat{display:flex;justify-content:space-between;padding:.4em .8em;border-top:1px solid var(--line);font-size:.8em;color:var(--mut);background:var(--panel)}
+ #sheet{position:fixed;inset:0;background:rgba(5,8,14,.65);display:none;align-items:center;justify-content:center;z-index:9}
+ #sheet.on{display:flex}
+ #sheet .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1.2em 1.6em;max-width:640px;max-height:80vh;overflow:auto}
+ #sheet h3{margin:.2em 0 .8em}
+ #sheet table{border-collapse:collapse;font-size:.9em}
+ #sheet td{padding:.25em .8em .25em 0;color:var(--txt)}
+ #sheet td.k{color:var(--acc);font-family:ui-monospace,Consolas,monospace;white-space:nowrap}
 </style>
 </head>
 <body>
 <div id="studio-app">
 <header>
-<h1>Studio — чернетки</h1>
-<p class="author"><a href="/">← Полиця</a> · <a href="/cover">Cover Studio</a> ·
-чернетки зберігаються у <code>workspace/drafts/</code> (локально)</p>
+ <h1 data-i18n="app">Studio — чернетки</h1>
+ <span class="pill" id="pill" data-i18n-idle="Готово">…</span>
+ <span id="goals">
+   <span data-i18n="target">ціль</span> <input id="gTarget" type="number" min="0" step="100" value="0"/>
+   · <span id="gToday">0</span> <span data-i18n="today">сьогодні</span>
+   · <span id="gStreak">🔥 0</span>
+ </span>
+ <span class="grow"></span>
+ <a href="/" data-i18n="shelf">Полиця</a>
+ <a href="/cover" data-i18n="cover">Обкладинки</a>
+ <a href="/products" data-i18n="products">Продукти</a>
+ <span class="pill chip" id="langChip">EN</span>
+ <span class="pill chip" id="themeChip">◐</span>
+ <span class="pill chip" id="helpChip" title="?">?</span>
 </header>
-<section class="grid">
- <div class="col">
-  <div class="bar"><button id="new">+ Нова чернетка</button><input id="newtitle" placeholder="Назва книги" size="16"/></div>
-  <ul id="drafts">…</ul>
- </div>
- <div class="col">
-  <div class="bar" id="editorbar" hidden>
-   <strong id="curTitle"></strong>
-   <select id="chapSel"></select>
-   <button id="addChap" class="ghost">+ розділ</button>
-   <button id="save">Зберегти (Ctrl+S)</button>
-   <button id="promote" class="ghost">Promote → EPUB</button>
-   <button id="del" class="ghost">✕</button>
+<main>
+ <aside class="rail">
+  <div class="railhead"><button class="btn" id="addChap" data-i18n="new">＋ розділ</button>
+   <span class="grow"></span><span class="muted" id="bookWords"></span></div>
+  <ul id="chapList"></ul>
+ </aside>
+ <section>
+  <div class="bar">
+   <button data-act="h1" title="Alt+1">H1</button>
+   <button data-act="h2" title="Alt+2">H2</button>
+   <button data-act="h3" title="Alt+3">H3</button>
+   <span class="sep"></span>
+   <button data-act="b" title="Ctrl+B"><b>B</b></button>
+   <button data-act="i" title="Ctrl+I"><i>I</i></button>
+   <button data-act="e" title="Ctrl+E">&lt;/&gt;</button>
+   <button data-act="q" title="Ctrl+Shift+Q">❝</button>
+   <button data-act="k" title="Ctrl+K">🔗</button>
+   <span class="sep"></span>
+   <input id="titleIn" placeholder="— розділ —"/>
   </div>
-  <div id="editor" hidden>
-   <input id="chapTitle" placeholder="Заголовок розділу" style="width:100%;margin-bottom:.5em"/>
-   <div class="bar" style="flex-wrap:wrap">
-    <span style="color:#9aa0ac">AI:</span>
-    <button class="ghost ai" data-mode="continue">продовжити</button>
-    <button class="ghost ai" data-mode="rewrite">переписати</button>
-    <button class="ghost ai" data-mode="summarize">резюме</button>
-    <button class="ghost ai" data-mode="outline">план</button>
-    <button class="ghost ai" data-mode="cover-brief">арт-бриф</button>
-    <span id="aistat" style="color:#9aa0ac"></span>
-   </div>
-   <textarea id="md" placeholder="## Заголовок&#10;&#10;текст…"></textarea>
-   <pre id="preview" style="white-space:pre-wrap;border-top:1px dashed #2f3542;margin-top:.6em;"></pre>
-  </div>
-  <p id="status"></p>
- </div>
-</section>
+  <div class="editwrap"><textarea id="md" spellcheck="false"></textarea></div>
+ </section>
+ <aside class="prev" id="prevPane"><div id="prev"></div></aside>
+</main>
+<div class="stat"><span id="stLeft"></span><span id="stRight"></span></div>
 </div>
+<div id="sheet"><div class="card"><h3 data-i18n="keys">Гарячі клавіші</h3><table id="keysT"></table><p class="muted">Esc — закрити</p></div></div>
 <script>
-const $=s=>document.querySelector(s);
-let drafts=[],cur=null,chap=null;
-async function j(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(await r.text());return r.json().catch(()=>({}));}
-function st(msg,ok){$('#status').textContent=msg;$('#status').className=ok===false?'err':'saved';}
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const LS=localStorage;
+const L={
+ uk:{app:'Studio — чернетки',shelf:'Полиця',cover:'Обкладинки',products:'Продукти',target:'ціль',today:'сьогодні',new:'＋ розділ',
+  keys:'Гарячі клавіші',idle:'Готово',saving:'збереження…',saved:'Збережено',failed:'помилка — повторити',
+  del:'Видалити розділ?', sure:'Перейменувати — Enter, скасувати — Esc', chap:'Розділ', renamed:'перейменовано', reordered:'порядок збережено'},
+ en:{app:'Studio — drafts',shelf:'Shelf',cover:'Covers',products:'Products',target:'goal',today:'today',new:'＋ chapter',
+  keys:'Keyboard shortcuts',idle:'Ready',saving:'saving…',saved:'Saved',failed:'failed — retry',
+  del:'Delete this chapter?', sure:'Rename — Enter, Esc cancels', chap:'Chapter', renamed:'renamed', reordered:'order saved'}
+};
+let lang=LS.getItem('rb.lang')||'uk';
+function T(k){return (L[lang]&&L[lang][k])||L.uk[k]||k;}
+function applyI18n(){document.documentElement.lang=lang==='uk'?'uk':'en';
+ $$('.bar input'); $$('[data-i18n]').forEach(e=>{const k=e.dataset.i18n;if(L[lang][k]!==undefined)e.textContent=L[lang][k];});
+ $('#langChip').textContent=lang==='uk'?'EN':'УК';}
+/* state */
+let drafts=[],cur=null,chaps=[],curNum=0,lastWords=0,dirty=false;
+async function j(u,o){const r=await fetch(u,o);if(!r.ok)throw new Error(await r.text());return r.json().catch(()=>({}));}
+/* pill */
+let pillTimer=null,pending=null;
+function pill(state){const p=$('#pill');p.className='pill '+state;
+ p.textContent=state==='saving'?T('saving'):state==='saved'?T('saved'):state==='failed'?T('failed'):T('idle');}
+$('#pill').onclick=()=>{if($('#pill').classList.contains('failed'))saveNow();};
+/* drafts rail (simple list in left rail header area via chapList is chapters; drafts live in a select) */
 async function boot(){
- drafts=await (await fetch('/api/drafts')).json();
- $('#drafts').innerHTML=drafts.map(d=>
-  '<li><a href="#" data-id="'+d.id+'">'+d.title+'</a> <span style="color:#9aa0ac">· '+
-  d.chapters.length+' р. · '+d.language+'</span></li>').join('')||'<li>немає — створіть зліва</li>';
- document.querySelectorAll('#drafts a').forEach(a=>a.onclick=e=>{e.preventDefault();open(a.dataset.id);});
+ await loadDrafts();
 }
-$('#new').onclick=async()=>{
- const t=$('#newtitle').value.trim();if(!t)return;
- try{await j('/api/drafts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:t,language:'uk'})});
-  $('#newtitle').value='';await boot();open(t.toLowerCase().replace(/[^a-z0-9-]+/gi,' ').trim().replace(/ +/g,'-'));}
- catch(e){st('помилка: '+e.message,false);}
-};
-async function open(id){
- const doc=await j('/api/drafts/'+id);cur=doc.meta;
- $('#editorbar').hidden=false;$('#editor').hidden=false;
- $('#curTitle').textContent=cur.title+' ('+cur.language+')';
- $('#chapSel').innerHTML=doc.chapters.map(c=>'<option value="'+c.number+'">'+c.number+'. '+c.title+'</option>').join('')
-   ||'<option value="1">1. —</option>';
- doc.chapters.length?$('#chapSel').value=doc.chapters[0].number:0;
- chap=doc.chapters;loadChap();
+async function loadDrafts(){
+ try{drafts=await j('/api/drafts');}catch(e){drafts=[];}
+ const sel=$('#draftSel')||(function(){const s=document.createElement('select');s.id='draftSel';
+  s.style.cssText='background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.3em';
+  $('.railhead').prepend(s);return s;})();
+ sel.innerHTML='<option value="">— чернетка —</option>'+drafts.map(d=>`<option value="${d.id}">${d.title}</option>`).join('');
+ sel.onchange=()=>openDraft(sel.value);
+ if(!cur&&drafts.length){sel.value=drafts[0].id;openDraft(drafts[0].id);}
 }
-function loadChap(){
- const n=+$('#chapSel').value;const c=(chap||[]).find(x=>x.number===n)||{title:'',content:''};
- $('#chapTitle').value=c.title;$('#md').value=c.content;render();
+async function openDraft(id){
+ if(!id){cur=null;chaps=[];renderChaps();return;}
+ const doc=await j('/api/drafts/'+id);
+ cur=doc.meta; chaps=(doc.chapters||[]).map(c=>({...c,words:count(c.content||'')}));
+ selectChapter(chaps.length?chaps[0].number:0);
+ renderChaps();
 }
-$('#chapSel').onchange=loadChap;
-$('#addChap').onclick=()=>{chap.push({number:chap.length+1,title:'',content:''});
- $('#chapSel').innerHTML=chap.map(c=>'<option value="'+c.number+'">'+c.number+'. '+(c.title||'…')+'</option>').join('');
- $('#chapSel').value=chap.length;loadChap();};
-async function save(){
- if(!cur)return;const n=+$('#chapSel').value;
- try{await j('/api/drafts/'+cur.id+'/chapter/'+n,{method:'PUT',headers:{'content-type':'application/json'},
-   body:JSON.stringify({title:$('#chapTitle').value,content:$('#md').value})});
-  st('збережено workspace/drafts/'+cur.id+'/chapters/ch'+String(n).padStart(2,'0')+'.md',true);await boot();}
- catch(e){st('помилка: '+e.message,false);}
+function renderChaps(){
+ const ul=$('#chapList');ul.innerHTML='';
+ chaps.forEach((c,idx)=>{
+  const li=document.createElement('li');li.draggable=true;li.dataset.n=c.number;
+  li.innerHTML=`<span class="grip">⋮⋮</span><span class="ttl">${c.title||('— '+(idx+1)+' —')}</span><span class="wc">${c.words||0}</span><span class="del" title="${T('del')}">✕</span>`;
+  li.querySelector('.ttl').ondblclick=e=>{e.stopPropagation();inlineRename(li,c);};
+  li.querySelector('.del').onclick=async e=>{e.stopPropagation();if(!confirm(T('del')))return;
+   try{chaps=(await j(`/api/drafts/${cur.id}/chapter/${c.number}`,{method:'DELETE'})).chapters;renderChaps();if(curNum===c.number)selectChapter(chaps[0]?chaps[0].number:0);}catch(err){pill('failed');}};
+  li.onclick=()=>selectChapter(c.number);
+  li.ondragstart=e=>{li.classList.add('drag');e.dataTransfer.setData('text/plain',c.number);};
+  li.ondragend=()=>li.classList.remove('drag');
+  li.ondragover=e=>e.preventDefault();
+  li.ondrop=async e=>{e.preventDefault();li.classList.remove('drag');
+   const from=+e.dataTransfer.getData('text/plain');const to=c.number;if(from===to)return;
+   const ord=chaps.map(x=>x.number).filter(n=>n!==from);
+   ord.splice(ord.indexOf(to)+(from<to?1:0),0,from);
+   try{chaps=(await j(`/api/drafts/${cur.id}/reorder`,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(ord)})).chapters;
+    renderChaps();pill('saved');}catch(err){pill('failed');}};
+  if(c.number===curNum)li.classList.add('sel');
+  ul.appendChild(li);
+ });
+ $('#bookWords').textContent=chaps.reduce((a,c)=>a+(c.words||0),0)+' w';
 }
-$('#save').onclick=save;
-document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();save();}});
-$('#promote').onclick=async()=>{
- try{await save();const p=await (await fetch('/api/drafts/'+cur.id+'/promote',{method:'POST'})).text();
-  if(!p.startsWith('draft')&&!p.includes('.epub'))throw new Error(p);
-  st('EPUB: '+p+' — дивись на /',true);}catch(e){st('promote: '+e.message,false);}
-};
-$('#del').onclick=async()=>{if(!cur||!confirm('Видалити чернетку?'))return;
- await fetch('/api/drafts/'+cur.id,{method:'DELETE'});cur=null;$('#editorbar').hidden=true;$('#editor').hidden=true;await boot();};
+function inlineRename(li,c){
+ const ttl=li.querySelector('.ttl');const old=c.title;
+ ttl.innerHTML='<input style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--acc);border-radius:4px"/>';
+ const inp=ttl.querySelector('input');inp.value=old;inp.focus();inp.select();
+ inp.onkeydown=async e=>{e.stopPropagation();
+  if(e.key==='Enter'){inp.blur();}
+  if(e.key==='Escape'){c.title=old;renderChaps();}};
+ inp.onblur=async()=>{c.title=inp.value.trim();renderChaps();
+  await saveChapter(c).catch(()=>pill('failed'));};
+}
+/* editor */
+function selectChapter(n){
+ if(!n){$('#md').value='';$('#titleIn').value='';curNum=0;renderChaps();return;}
+ const c=chaps.find(x=>x.number===n);if(!c)return;
+ curNum=n;c.content=c.content||'';
+ $('#titleIn').value=c.title;$('#md').value=c.content;
+ lastWords=count(c.content);renderChaps();paint();markClean();
+}
+function count(t){return (t.match(/\S+/g)||[]).length;}
+function markDirty(){dirty=true;pill('saving');clearTimeout(pillTimer);pillTimer=setTimeout(saveNow,1500);}
+function markClean(){dirty=false;pill('');}
+async function saveNow(){
+ if(!cur||!curNum)return;clearTimeout(pillTimer);
+ const c=chaps.find(x=>x.number===curNum);if(!c)return;
+ c.title=$('#titleIn').value;c.content=$('#md').value;
+ try{const m=await j(`/api/drafts/${cur.id}/chapter/${curNum}`,{method:'PUT',headers:{'content-type':'application/json'},
+  body:JSON.stringify({title:c.title,content:c.content})});
+  m.chapters.forEach(x=>{const mine=chaps.find(y=>y.number===x.number);if(mine){mine.words=count(mine.content);}});
+  dirty=false;const d=new Date();pill('saved');
+  $('#pill').textContent=T('saved')+' '+d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+  touchGoals();renderChaps();}
+ catch(e){pill('failed');}
+}
 function esc(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
-function render(){
- $('#preview').innerHTML=$('#md').value.split(/\n{2,}/).map(p=>{
-  if(p.startsWith('### '))return '<h3>'+esc(p.slice(4))+'</h3>';
-  if(p.startsWith('## '))return '<h2>'+esc(p.slice(3))+'</h2>';
-  return '<p>'+esc(p)+'</p>';}).join('');
+function inline(t){let s=esc(t);
+ s=s.replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g,'<em>$1</em>').replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2">$1</a>');
+ return s;}
+function md2book(md,lang){const cw=lang==='en'?'Chapter':'Розділ';let out='';let inCode=false;let para=[];
+ const flush=()=>{if(para.length){out+='<p>'+inline(para.join(' '))+'</p>';para=[];}};
+ for(const raw of md.split('\n')){const l=raw.trimEnd();
+  if(l.trimStart().startsWith('```')){flush();out+=inCode?'</code></pre>':'<pre><code>';inCode=!inCode;continue;}
+  if(inCode){out+=esc(l)+'\n';continue;}
+  const t=l.trim();
+  if(t.startsWith('### ')){flush();out+='<p class="muted"><b>'+inline(t.slice(4))+'</b></p>';}
+  else if(t.startsWith('## ')){flush();out+='<h2>'+inline(t.slice(3))+'</h2>';}
+  else if(t.startsWith('> ')){flush();out+='<blockquote>'+inline(t.slice(2))+'</blockquote>';}
+  else if(t===''){flush();}
+  else para.push(t);
+ }
+ flush();if(inCode)out+='</code></pre>';
+ return `<p class="muted">${cw} ${curNum}</p>`+out;}
+function paint(){
+ $('#prev').innerHTML=cur?md2book($('#md').value,cur.language||'uk'):'<p class="muted">—</p>';
+ const w=count($('#md').value);
+ $('#stLeft').textContent=`${w} ${w===1?'word':'words'}`;
+ $('#stRight').textContent=cur?`${chaps.reduce((a,c)=>a+(c.words||0),0)} w · ${cur.id}`:'';
 }
-$('#md').addEventListener('input',render);
-document.querySelectorAll('.ai').forEach(b=>b.onclick=async()=>{
- const mode=b.dataset.mode,ta=$('#md');
- $('#aistat').textContent='думаю…';ta.disabled=true;
- try{
-  const r=await fetch('/api/ai',{method:'POST',headers:{'content-type':'application/json'},
-   body:JSON.stringify({mode,prompt:mode=='continue'?'':'',context:ta.value,stream:true})});
-  if(!r.ok)throw new Error(await r.text());
-  let acc='',buf='';
-  const rd=r.body.getReader(),dec=new TextDecoder();
-  const apply=()=>{
-   if(mode=='continue')ta.value=ta.value.replace(/\s*$/,'\n\n')+acc.trim()+'\n';
-   else if(mode=='rewrite')ta.value=acc.trim();
-   else ta.value+='\n\n<!-- AI '+mode+' -->\n'+acc.trim()+'\n';
-   render();
-  };
-  while(true){
-   const {done,value}=await rd.read();if(done)break;
-   buf+=dec.decode(value,{stream:true});
-   let i;
-   while((i=buf.indexOf('\n\n'))>=0){
-    const frame=buf.slice(0,i);buf=buf.slice(i+2);
-    let ev='',data='';
-    for(const ln of frame.split('\n')){
-     if(ln.startsWith('event:'))ev=ln.slice(6).trim();
-     else if(ln.startsWith('data:'))data+=ln.slice(5).trim();
-    }
-    if(ev=='error'){$('#aistat').textContent='AI: '+(JSON.parse(data)||data);continue;}
-    try{acc+=JSON.parse(data);}catch(e){acc+=data;}
-    $('#aistat').textContent='…'+acc.length+' symb';
-   }
-  }
-  apply();$('#aistat').textContent='ok';
- }catch(e){$('#aistat').textContent=e.message.slice(0,80);}
- ta.disabled=false;
+/* toolbar + shortcuts */
+function wrap(sel,open,close){const ta=$('#md');const v=ta.value;const s=ta.selectionStart,e=ta.selectionEnd;
+ ta.value=v.slice(0,s)+open+v.slice(s,e)+close+v.slice(e);ta.selectionStart=s+open.length;ta.selectionEnd=e+open.length;ta.focus();markDirty();paint();}
+function linePrefix(pfx){const ta=$('#md');const s=ta.selectionStart;const lineStart=ta.value.lastIndexOf('\n',s-1)+1;
+ ta.value=ta.value.slice(0,lineStart)+pfx+ta.value.slice(lineStart);ta.focus();markDirty();paint();}
+$$('.bar button').forEach(b=>b.onclick=()=>{const a=b.dataset.act;
+ if(a==='b')wrap(null,'**','**');else if(a==='i')wrap(null,'*','*');else if(a==='e')wrap(null,'`','`');
+ else if(a==='q')linePrefix('> ');else if(a==='k')wrap(null,'[','](https://)');
+ else if(a==='h1')linePrefix('# ');else if(a==='h2')linePrefix('## ');else if(a==='h3')linePrefix('### ');});
+$('#md').addEventListener('input',()=>{markDirty();paint();});
+$('#titleIn').addEventListener('input',markDirty);
+document.addEventListener('keydown',e=>{
+ const mod=e.ctrlKey||e.metaKey;
+ if(e.key==='Escape'){if($('#sheet').classList.contains('on'))$('#sheet').classList.remove('on');return;}
+ if(mod&&/^[123]$/.test(e.key)&&e.altKey){linePrefix('#'.repeat(+e.key)+' ');e.preventDefault();return;}
+ if(e.target===$('#md')||e.target===$('#titleIn')||e.target.tagName==='INPUT'){
+  if(mod&&'bB'.includes(e.key)){wrap(null,'**','**');e.preventDefault();}
+  if(mod&&'iI'.includes(e.key)){wrap(null,'*','*');e.preventDefault();}
+  if(mod&&e.key==='e'){wrap(null,'`','`');e.preventDefault();}
+  if(mod&&e.key==='k'){wrap(null,'[','](https://)');e.preventDefault();}
+  if(mod&&e.key==='s'){saveNow();e.preventDefault();}
+  return;}
+ if(mod&&e.key==='s'){saveNow();e.preventDefault();}
+ if(mod&&e.shiftKey&&e.key==='!'){e.preventDefault();$('#sheet').classList.toggle('on');}
+ if(e.key==='?'&&mod===false&&e.target.tagName!=='INPUT'&&e.target.tagName!=='TEXTAREA'){$('#sheet').classList.toggle('on');}
+ if(mod&&e.key==='1'){document.body.classList.toggle('norail');LS.setItem('rb.norail',document.body.classList.contains('norail')?'1':'');}
+ if(mod&&e.key==='2'){document.body.classList.toggle('noprev');LS.setItem('rb.noprev',document.body.classList.contains('noprev')?'1':'');}
 });
-boot();
+$('#themeChip').onclick=()=>{document.body.classList.toggle('light');LS.setItem('rb.light',document.body.classList.contains('light')?'1':'');};
+$('#langChip').onclick=()=>{lang=lang==='uk'?'en':'uk';LS.setItem('rb.lang',lang);applyI18n();renderChaps();pill('');};
+$('#helpChip').onclick=()=>$('#sheet').classList.toggle('on');
+/* goals */
+function goalKey(){return cur?'rb.goals.'+cur.id:'rb.goals';}
+function touchGoals(){
+ const g=JSON.parse(LS.getItem(goalKey())||'{"target":0,"day":"","today":0,"streak":0}');
+ const w=count($('#md').value);const today=new Date().toISOString().slice(0,10);
+ if(g.day!==today){if(w>g.today0){g.streak=g.today0>0?g.streak+1:g.streak;}g.day=today;g.today0=0;}
+ if(w>g.today0){g.today=(g.today||0)+(w-g.today0);}g.today0=w;
+ g.target=+$('#gTarget').value||g.target;
+ LS.setItem(goalKey(),JSON.stringify(g));showGoals();
+}
+function showGoals(){const g=JSON.parse(LS.getItem(goalKey())||'{}');$('#gToday').textContent=g.today||0;$('#gStreak').textContent='🔥 '+(g.streak||0);$('#gTarget').value=g.target||0;}
+$('#gTarget').onchange=touchGoals;
+/* cheatsheet */
+$('#keysT').innerHTML=[['Ctrl+B','**bold**'],['Ctrl+I','*italic*'],['Ctrl+E','`code`'],['Ctrl+K','[link]()'],['Alt+1/2/3','#/##/###'],['Ctrl+S','save now'],['Ctrl+1 / Ctrl+2','toggle rails'],['? ','this sheet'],['⋮⋮ drag','reorder chapters'],['dbl-click title','rename']].map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+/* new chapter */
+$('#addChap').onclick=async()=>{
+ if(!cur){const name=prompt('Назва чернетки / book title:');if(!name)return;
+  await j('/api/drafts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:name,language:lang==='uk'?'uk':'en'})});
+  await loadDrafts();$('#draftSel').value=(name.toLowerCase().replace(/[^a-z0-9-]+/gi,' ').trim().replace(/ +/g,'-'));openDraft($('#draftSel').value);return;}
+ const n=Math.max(0,...chaps.map(c=>c.number))+1;
+ await save({number:n,title:'',content:''});
+ chaps.push({number:n,title:'',content:'',words:0});selectChapter(n);renderChaps();
+ async function save(c){await j(`/api/drafts/${cur.id}/chapter/${c.number}`,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({title:'Новий розділ',content:''})});}
+};
+/* init persisted toggles */
+if(LS.getItem('rb.light'))document.body.classList.add('light');
+if(LS.getItem('rb.norail'))document.body.classList.add('norail');
+if(LS.getItem('rb.noprev'))document.body.classList.add('noprev');
+applyI18n();pill('');boot().then(showGoals);
 </script>
 </body>
 </html>

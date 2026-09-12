@@ -31,6 +31,7 @@
 <div class="tabs">
  <button class="tab on" data-tab="gen">Шаблон (guides)</button>
  <button class="tab" data-tab="studio">Студія (шари)</button>
+ <span class="grow" style="flex:1"></span><span class="tab" id="langChip" style="cursor:pointer">EN</span>
 </div>
 
 <section id="tab-gen">
@@ -85,6 +86,13 @@
 </div>
 <script>
 const $=s=>document.querySelector(s);
+(function(){const L={uk:['Шаблон (guides)','Студія (шари)','Полиця','Продукти','Згенерувати','Чернетка','Назва','Автор','Формат','Сторінок','Папір','Тип','ISBN (штрих-код)','Рендер','Зберегти cover.json у чернетку','оберіть чернетку'],
+ en:['Template (guides)','Studio (layers)','Shelf','Products','Generate','Draft','Title','Author','Format','Pages','Paper','Kind','ISBN (barcode)','Render','Save cover.json to draft','pick a draft']};
+ let lang=localStorage.getItem('rb.lang')||'uk';const keys=document.querySelectorAll('label span,#sstat');
+ window._rbLang=()=>lang;
+ function apply(){const t=L[lang];document.getElementById('langChip').textContent=lang==='uk'?'EN':'УК';
+  const tabs=document.querySelectorAll('.tab[data-tab]');if(tabs[0])tabs[0].textContent=t[0];if(tabs[1])tabs[1].textContent=t[1];}
+ document.getElementById('langChip').onclick=()=>{lang=lang==='uk'?'en':'uk';localStorage.setItem('rb.lang',lang);apply();};apply();})();
 const TRIMS={pb:["5x8","5.06x7.81","5.25x8","5.5x8.5","6x9","6.14x9.21","6.69x9.61","7x10","7.44x9.69","7.5x9.25","8x10","8.25x6","8.25x8.25","8.27x11.69","8.5x8.5","8.5x11"],
  hc:["5.5x8.5","6x9","6.14x9.21","7x10","8.25x11"], dj:["5x8","5.5x8.5","6x9","7x10"]};
 function fill(sel,table,keep){const cur=keep?$( sel).value:'6x9';$(sel).innerHTML=table.map(t=>'<option'+(t==cur?' selected':'')+'>'+t+'</option>').join('');}

@@ -19,13 +19,21 @@
 <div id="products-app">
 <header>
 <h1>Продукти (Shelf)</h1>
-<p class="author"><a class="a" href="/">← Книги</a> · <a class="a" href="/studio">Studio</a> · <a class="a" href="/cover">Cover</a></p>
+<p class="author"><a class="a" href="/">← Книги</a> · <a class="a" href="/studio">Studio</a> · <a class="a" href="/cover">Cover</a>
+ <span class="badge gate" id="langChip" style="margin-left:1em;cursor:pointer">EN</span></p>
 <p class="meta">Зібрано <code>cargo run -- shelf</code>; перевірка воріт — <code>/api/print/check</code>.</p>
 </header>
 <div id="list">…</div>
 </div>
 <script>
 const $=s=>document.querySelector(s);
+(function(){const L={uk:['← Книги','Продукти','Зібрано','Немає зібраних продуктів. Додай formats у product.json і запусти cargo run -- shelf.'],
+ en:['← Books','Products','Built','No built products yet. Add formats in product.json and run cargo run -- shelf.']};
+ let lang=localStorage.getItem('rb.lang')||'uk';
+ function apply(){const c=document.getElementById('langChip');c.textContent=lang==='uk'?'EN':'УК';
+  const h=document.querySelector('header h1');if(h)h.textContent=L[lang][1];
+  const a=document.querySelector('header .author a');if(a)a.textContent=L[lang][0];}
+ document.getElementById('langChip').onclick=()=>{lang=lang==='uk'?'en':'uk';localStorage.setItem('rb.lang',lang);apply();};apply();})();
 async function boot(){
  let items=[];try{items=await (await fetch('/api/products')).json();}catch(e){}
  $('#list').innerHTML=items.length?items.map(p=>{

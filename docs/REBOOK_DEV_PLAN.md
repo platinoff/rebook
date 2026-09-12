@@ -168,3 +168,23 @@ RB-16b ✅ `687c76a` · **RB-17 ✅ `4e82549`** — PDF/X-1a CMYK wrapper done
 (OutputIntent/XMP/TrimBox/ink-TAC, `--pdf --cmyk`; strict FOGRA39 ICC via
 `REBOOK_ICC_CMYK`, not shipped). Remaining polish: RB-16c raster+subset,
 page-numbers in interior, live rescan of /products.
+
+## 6. Wave 4 — UX/i18n (research-driven, 2026-09-12)
+
+Catalog: Atticus (Write↔Format, drag tree, goals), Vellum (3-pane, ⌘Y preview
+sync, anti-WYSIWYG, cover size validation), Reedsy (six-dot drag, version
+timeline), Canva (select/handles/smart guides/layers/zoom/`T`), Ulysses+iA
+(focus, typewriter caret, 64-char measure), Notion (slash menu, gutter +/⋮⋮),
+Docs (markdown autocorrect + shortcut canon), kdp-forge (status pill, 1.5 s
+debounce).
+
+| RB | Scope | Status |
+|----|-------|--------|
+| 19 | interface i18n uk⇄en + persisted toggle chip | landed band 250 |
+| 20 | Studio UX: 3-pane, chapters rail (add/rename/delete/drag-reorder + word counts), autosave pill editing→saving→Saved, markdown toolbar + Ctrl+B/I/E/K + Alt+1..3, goals strip, `?` cheatsheet; new reorder/delete-chapter API | landed band 250 |
+| 21 | Cover canvas: select/drag/resize, layers, zoom, smart guides + safe-zone warnings (moat) | queued |
+| 22 | Shelf card grid + dark/light theme + language badges | queued |
+| 23 | Focus mode, slash menu, quick-open | queued |
+
+Shortcut canon: Ctrl+B/I/E/K, Alt+1..3, Ctrl+S ritual, Ctrl+P quick-open,
+Ctrl+1/2 rails, arrows nudge (canvas), Ctrl+0 zoom, `?` cheatsheet.

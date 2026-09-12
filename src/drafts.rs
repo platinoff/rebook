@@ -172,13 +172,76 @@ pub fn save_chapter(
     };
     match meta.chapters.iter_mut().find(|c| c.number == number) {
         Some(existing) => *existing = entry,
-        None => meta.chapters.push(entry),
+        None => meta.chapters.push(entry), // new chapters go to the end (order is authorial)
     }
-    meta.chapters.sort_by_key(|c| c.number);
     meta.updated = now();
     std::fs::write(meta_path(root, id), meta.to_json())
         .map_err(|e| format!("write draft.json: {e}"))?;
     Ok(meta)
+}
+
+/// Delete a chapter and renumber the rest contiguously (files included).
+pub fn delete_chapter(root: &Path, id: &str, number: u32) -> Result<DraftMeta, String> {
+    let mut meta = load(root, id)?;
+    let idx = meta
+        .chapters
+        .iter()
+        .position(|c| c.number == number)
+        .ok_or_else(|| format!("no chapter {number} in {id}"))?;
+    let removed = meta.chapters.remove(idx);
+    let _ = std::fs::remove_file(draft_dir(root, id).join(&removed.file));
+    renumber_chapters(root, id, &mut meta)?;
+    meta.updated = now();
+    std::fs::write(meta_path(root, id), meta.to_json()).map_err(|e| e.to_string())?;
+    Ok(meta)
+}
+
+/// Apply a new chapter order (given as the old numbering sequence, remaining
+/// chapters keep relative order); renumbers `chNN` files contiguously.
+pub fn reorder_chapters(root: &Path, id: &str, order: &[u32]) -> Result<DraftMeta, String> {
+    let mut meta = load(root, id)?;
+    let mut picked: Vec<ChapterMeta> = Vec::new();
+    for n in order {
+        let idx = meta
+            .chapters
+            .iter()
+            .position(|c| c.number == *n)
+            .ok_or_else(|| format!("no chapter {n} in {id}"))?;
+        picked.push(meta.chapters.remove(idx));
+    }
+    picked.append(&mut meta.chapters);
+    meta.chapters = picked;
+    renumber_chapters(root, id, &mut meta)?;
+    meta.updated = now();
+    std::fs::write(meta_path(root, id), meta.to_json()).map_err(|e| e.to_string())?;
+    Ok(meta)
+}
+
+/// Rename chapter files to contiguous ch01..chNN (extension preserved) and
+/// rewrite numbering. Two-pass rename avoids same-extension collisions.
+fn renumber_chapters(root: &Path, id: &str, meta: &mut DraftMeta) -> Result<(), String> {
+    let dir = draft_dir(root, id);
+    let ext_of = |f: &str| {
+        f.rsplit_once('.')
+            .map(|(_, e)| e.to_string())
+            .unwrap_or_else(|| "md".to_string())
+    };
+    // pass 1: move to tmp names
+    for (i, c) in meta.chapters.iter().enumerate() {
+        std::fs::rename(dir.join(&c.file), dir.join(format!("chapters/tmp{i}.md")))
+            .map_err(|e| format!("tmp rename {}: {e}", c.file))?;
+    }
+    // pass 2: tmp → final
+    for (i, c) in meta.chapters.iter_mut().enumerate() {
+        let ext = ext_of(&c.file);
+        let old = c.file.clone();
+        let file = format!("chapters/ch{:02}.{ext}", i + 1);
+        std::fs::rename(dir.join(format!("chapters/tmp{i}.md")), dir.join(&file))
+            .map_err(|e| format!("final rename {old}: {e}"))?;
+        c.file = file;
+        c.number = (i + 1) as u32;
+    }
+    Ok(())
 }
 
 /// Read a saved chapter's text (None when absent).
@@ -308,6 +371,28 @@ mod tests {
         assert!(create(&r, "Same", "b", "uk").is_err());
         assert!(load(&r, "absent").is_err());
         assert!(promote(&r, "absent").is_err());
+    }
+
+    #[test]
+    fn reorder_and_delete_renumber() {
+        let r = test_root("reorder");
+        let m = create(&r, "Order Book", "a", "uk").unwrap();
+        save_chapter(&r, &m.id, 1, "One", "one", "md").unwrap();
+        save_chapter(&r, &m.id, 2, "Two", "two", "mdc").unwrap();
+        let m = save_chapter(&r, &m.id, 3, "Three", "three", "md").unwrap();
+        let m = reorder_chapters(&r, &m.id, &[3, 1]).unwrap();
+        assert_eq!(m.chapters[0].title, "Three");
+        assert_eq!(m.chapters[0].number, 1);
+        assert_eq!(m.chapters[1].title, "One");
+        assert_eq!(m.chapters[2].title, "Two"); // appended, contiguous
+        assert_eq!(m.chapters[2].number, 3);
+        assert_eq!(m.chapters[2].file, "chapters/ch03.mdc"); // ext preserved
+        assert_eq!(chapter_content(&r, &m.id, 1).unwrap(), "three".to_string());
+        let m = delete_chapter(&r, &m.id, 2).unwrap();
+        assert_eq!(m.chapters.len(), 2);
+        assert_eq!(m.chapters[0].title, "Three");
+        assert_eq!(m.chapters[1].title, "Two");
+        assert_eq!(m.chapters[1].number, 2);
     }
 
     #[test]
