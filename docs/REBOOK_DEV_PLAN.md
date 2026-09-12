@@ -154,3 +154,10 @@ Georgia/Cyrillic + data-URI raster). Route **B** = own minimal PDF writer
 (~300 LOC: rects `re f`, BT/Td text, barcode as path fills, inline images)
 — full control, vector-only first. Gate either way: visual diff vs the
 KDP-generated template before close.
+
+**RB-16 RESOLVED → route B (owner pick).** Landed band 247 (rebook `1d09895`,
+ticket RB-16v2 done): `src/pdfwriter.rs` + `src/coverpdf.rs`, `cover-template
+--pdf`. Deferred: **RB-16b** = Type0/CID TrueType embed (Cyrillic text in PDF),
+barcode vector runs into coverpdf, `front_image` raster (Flate/DCT inline),
+Tm rotation for spine text. **RB-17** (Ingram PDF/X-CMYK) now builds on
+pdfwriter (OutputIntent + CMYK `k` ops) — after RB-16b.
