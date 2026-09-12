@@ -182,9 +182,12 @@ debounce).
 |----|-------|--------|
 | 19 | interface i18n uk⇄en + persisted toggle chip | landed band 250 |
 | 20 | Studio UX: 3-pane, chapters rail (add/rename/delete/drag-reorder + word counts), autosave pill editing→saving→Saved, markdown toolbar + Ctrl+B/I/E/K + Alt+1..3, goals strip, `?` cheatsheet; new reorder/delete-chapter API | landed band 250 |
-| 21 | Cover canvas: select/drag/resize, layers, zoom, smart guides + safe-zone warnings (moat) | queued |
-| 22 | Shelf card grid + dark/light theme + language badges | queued |
+| 21 | Cover canvas: select/drag/nudge/eyes/offsets + v2 resize/zoom/guides | ✅ `8f2ea85`+`c10bf88` |
+| 22 | Shelf card grid + dark/light theme + language badges | ✅ `eafb522` |
+| 25 | Studio find/replace (Ctrl+F) + cross-chapter search (Ctrl+Shift+F) + click-preview→caret | ✅ band 255 |
+| 24 | Complete print packages (interior.pdf + cover-wrap.pdf + epub-in-zip) — EN HC delivered | ✅ `8554eba` |
 | 23 | Focus mode, slash menu, quick-open | queued |
+| 26 | Studio meta panel (author/lang/cover/formats) + build-products | queued |
 
 Shortcut canon: Ctrl+B/I/E/K, Alt+1..3, Ctrl+S ritual, Ctrl+P quick-open,
 Ctrl+1/2 rails, arrows nudge (canvas), Ctrl+0 zoom, `?` cheatsheet.

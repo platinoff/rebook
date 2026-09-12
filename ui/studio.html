@@ -103,7 +103,16 @@
    <span class="sep"></span>
    <input id="titleIn" placeholder="— розділ —"/>
   </div>
-  <div class="editwrap"><textarea id="md" spellcheck="false"></textarea></div>
+  <div class="editwrap"><textarea id="md" spellcheck="false"></textarea>
+   <div id="find" style="display:none;position:sticky;bottom:.5em;margin:0 1.2em;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.5em .7em;z-index:3;gap:.4em;align-items:center">
+    <input id="fq" placeholder="знайти…" style="flex:1;min-width:8em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.3em .5em"/>
+    <input id="fr" placeholder="замінити…" style="flex:1;min-width:8em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.3em .5em"/>
+    <span id="fcn" class="muted" style="min-width:5em"></span>
+    <button class="btn ghost" id="fnext">↓</button><button class="btn ghost" id="fprev">↑</button>
+    <button class="btn ghost" id="fone">→</button><button class="btn ghost" id="fall">⇒all</button>
+    <button class="btn ghost" id="fx">✕</button>
+   </div>
+  </div>
  </section>
  <aside class="prev" id="prevPane"><div id="prev"></div></aside>
 </main>
@@ -215,23 +224,31 @@ function inline(t){let s=esc(t);
  s=s.replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g,'<em>$1</em>').replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2">$1</a>');
  return s;}
-function md2book(md,lang){const cw=lang==='en'?'Chapter':'Розділ';let out='';let inCode=false;let para=[];
- const flush=()=>{if(para.length){out+='<p>'+inline(para.join(' '))+'</p>';para=[];}};
- for(const raw of md.split('\n')){const l=raw.trimEnd();
+/* md2book tracks each block's source offset so clicking a preview para can jump the caret. */
+function md2book(md,lang){const cw=lang==='en'?'Chapter':'Розділ';let out='';let inCode=false;
+ let para=[];let paraStart=0;let off=0;window._blk=window._blk||[];window._blk=[];
+ const at=s=>window._blk.push({s});
+ const flush=()=>{if(para.length){const t=para.join(' ');if(t.trim()){window._blk.push({s:paraStart});out+='<p data-b="'+(window._blk.length-1)+'">'+inline(t)+'</p>';}para=[];}};
+ for(const raw of md.split('\n')){const l=raw.trimEnd();const lineOff=off;off+=raw.length+1;
   if(l.trimStart().startsWith('```')){flush();out+=inCode?'</code></pre>':'<pre><code>';inCode=!inCode;continue;}
   if(inCode){out+=esc(l)+'\n';continue;}
   const t=l.trim();
-  if(t.startsWith('### ')){flush();out+='<p class="muted"><b>'+inline(t.slice(4))+'</b></p>';}
-  else if(t.startsWith('## ')){flush();out+='<h2>'+inline(t.slice(3))+'</h2>';}
-  else if(t.startsWith('> ')){flush();out+='<blockquote>'+inline(t.slice(2))+'</blockquote>';}
+  if(t.startsWith('### ')){flush();window._blk.push({s:lineOff});out+='<p class="muted" data-b="'+(window._blk.length-1)+'"><b>'+inline(t.slice(4))+'</b></p>';}
+  else if(t.startsWith('## ')){flush();window._blk.push({s:lineOff});out+='<h2 data-b="'+(window._blk.length-1)+'">'+inline(t.slice(3))+'</h2>';}
+  else if(t.startsWith('> ')){flush();window._blk.push({s:lineOff});out+='<blockquote data-b="'+(window._blk.length-1)+'">'+inline(t.slice(2))+'</blockquote>';}
   else if(t===''){flush();}
-  else para.push(t);
+  else{if(!para.length)paraStart=lineOff;para.push(t);}
  }
  flush();if(inCode)out+='</code></pre>';
  return `<p class="muted">${cw} ${curNum}</p>`+out;}
 function paint(){
- $('#prev').innerHTML=cur?md2book($('#md').value,cur.language||'uk'):'<p class="muted">—</p>';
- const w=count($('#md').value);
+ const md=$('#md').value;
+ $('#prev').innerHTML=cur?md2book(md,cur.language||'uk'):'<p class="muted">—</p>';
+ $('#prev').onclick=e=>{const b=e.target.closest('[data-b]');if(!b)return;
+  const blk=window._blk[+b.dataset.b];if(!blk)return;
+  const ta=$('#md');ta.focus();ta.setSelectionRange(blk.s,blk.s);
+  const lh=parseFloat(getComputedStyle(ta).lineHeight)||24;ta.scrollTop=Math.max(0,(md.slice(0,blk.s).match(/\n/g)||[]).length*lh-ta.clientHeight/2);};
+ const w=count(md);
  $('#stLeft').textContent=`${w} ${w===1?'word':'words'}`;
  $('#stRight').textContent=cur?`${chaps.reduce((a,c)=>a+(c.words||0),0)} w · ${cur.id}`:'';
 }
@@ -246,10 +263,13 @@ $$('.bar button').forEach(b=>b.onclick=()=>{const a=b.dataset.act;
  else if(a==='h1')linePrefix('# ');else if(a==='h2')linePrefix('## ');else if(a==='h3')linePrefix('### ');});
 $('#md').addEventListener('input',()=>{markDirty();paint();});
 $('#titleIn').addEventListener('input',markDirty);
-document.addEventListener('keydown',e=>{
- const mod=e.ctrlKey||e.metaKey;
- if(e.key==='Escape'){if($('#sheet').classList.contains('on'))$('#sheet').classList.remove('on');return;}
- if(mod&&/^[123]$/.test(e.key)&&e.altKey){linePrefix('#'.repeat(+e.key)+' ');e.preventDefault();return;}
+ document.addEventListener('keydown',e=>{
+  const mod=e.ctrlKey||e.metaKey;
+  if(e.key==='Escape'){if($('#sheet').classList.contains('on'))$('#sheet').classList.remove('on');
+   const xv=$('#xov');if(xv&&xv.style.display!=='none')xv.style.display='none';
+   if($('#find').style.display==='flex'){closeFind();}return;}
+  if(mod&&e.key==='f'){e.preventDefault();if(e.shiftKey)openXFind();else openFind();return;}
+  if(mod&&/^[123]$/.test(e.key)&&e.altKey){linePrefix('#'.repeat(+e.key)+' ');e.preventDefault();return;}
  if(e.target===$('#md')||e.target===$('#titleIn')||e.target.tagName==='INPUT'){
   if(mod&&'bB'.includes(e.key)){wrap(null,'**','**');e.preventDefault();}
   if(mod&&'iI'.includes(e.key)){wrap(null,'*','*');e.preventDefault();}
@@ -279,7 +299,7 @@ function touchGoals(){
 function showGoals(){const g=JSON.parse(LS.getItem(goalKey())||'{}');$('#gToday').textContent=g.today||0;$('#gStreak').textContent='🔥 '+(g.streak||0);$('#gTarget').value=g.target||0;}
 $('#gTarget').onchange=touchGoals;
 /* cheatsheet */
-$('#keysT').innerHTML=[['Ctrl+B','**bold**'],['Ctrl+I','*italic*'],['Ctrl+E','`code`'],['Ctrl+K','[link]()'],['Alt+1/2/3','#/##/###'],['Ctrl+S','save now'],['Ctrl+1 / Ctrl+2','toggle rails'],['? ','this sheet'],['⋮⋮ drag','reorder chapters'],['dbl-click title','rename']].map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+$('#keysT').innerHTML=[['Ctrl+B','**bold**'],['Ctrl+I','*italic*'],['Ctrl+E','`code`'],['Ctrl+K','[link]()'],['Alt+1/2/3','#/##/###'],['Ctrl+S','save now'],['Ctrl+F','find & replace'],['Ctrl+Shift+F','search all chapters'],['Ctrl+P quick-open','(RB-23)'],['Ctrl+1 / Ctrl+2','toggle rails'],['? ','this sheet'],['⋮⋮ drag','reorder chapters'],['dbl-click title','rename'],['click preview','jump caret']].map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join('');
 /* new chapter */
 $('#addChap').onclick=async()=>{
  if(!cur){const name=prompt('Назва чернетки / book title:');if(!name)return;
@@ -290,6 +310,47 @@ $('#addChap').onclick=async()=>{
  chaps.push({number:n,title:'',content:'',words:0});selectChapter(n);renderChaps();
  async function save(c){await j(`/api/drafts/${cur.id}/chapter/${c.number}`,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({title:'Новий розділ',content:''})});}
 };
+/* find & replace (RB-25) */
+let fIdx=-1;
+function fMatches(){const ta=$('#md'),q=$('#fq').value;if(!q)return[];const v=ta.value,ms=[];let i=v.indexOf(q);
+ while(i>=0){ms.push(i);i=v.indexOf(q,i+1);}return ms;}
+function fShow(){const ms=fMatches();$('#fcn').textContent=ms.length?((fIdx+1)+' / '+ms.length):($('#fq').value?'0':'');return ms;}
+function fJump(d){const ms=fShow();if(!ms.length)return;fIdx=(fIdx+d+ms.length)%ms.length;const ta=$('#md'),q=$('#fq').value;
+ ta.focus();ta.setSelectionRange(ms[fIdx],ms[fIdx]+q.length);
+ const lh=parseFloat(getComputedStyle(ta).lineHeight)||24;ta.scrollTop=Math.max(0,(ta.value.slice(0,ms[fIdx]).match(/\n/g)||[]).length*lh-ta.clientHeight/2);}
+function openFind(){const f=$('#find');f.style.display='flex';$('#fq').focus();$('#fq').select();fIdx=-1;fShow();}
+function closeFind(){$('#find').style.display='none';$('#md').focus();}
+$('#fnext').onclick=()=>fJump(1);$('#fprev').onclick=()=>fJump(-1);
+$('#fone').onclick=()=>{const ms=fMatches();if(!ms.length||fIdx<0)return;const ta=$('#md'),q=$('#fq').value,r=$('#fr').value;
+ ta.value=ta.value.slice(0,ms[fIdx])+r+ta.value.slice(ms[fIdx]+q.length);fIdx--;markDirty();paint();fShow();fJump(1);};
+$('#fall').onclick=()=>{const ta=$('#md'),q=$('#fq').value,r=$('#fr').value;if(!q)return;
+ const n=fMatches().length;ta.value=ta.value.split(q).join(r);markDirty();paint();fIdx=-1;fShow();$('#fcn').textContent=n+'×';};
+$('#fx').onclick=closeFind;
+$('#fq').oninput=()=>{fIdx=-1;fShow();};
+$('#fq').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();fJump(e.shiftKey?-1:1);}if(e.key==='Escape')closeFind();};
+$('#fr').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#fone').click();}};
+/* cross-chapter search */
+function openXFind(){
+ if(!cur){openFind();return;}
+ let ov=$('#xov');if(!ov){ov=document.createElement('div');ov.id='xov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(5,8,14,.6);display:flex;align-items:flex-start;justify-content:center;z-index:9';
+  ov.innerHTML='<div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-top:8vh;width:min(680px,92vw);max-height:74vh;display:flex;flex-direction:column"><input id="xq" placeholder="пошук по всіх розділах…" style="margin:1em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:.5em .7em;font:inherit"/><div id="xres" style="overflow:auto;padding:0 1em 1em"></div></div>';
+  document.body.appendChild(ov);
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  $('#xq').oninput=()=>xRun($('#xq').value);}
+ document.body.appendChild(ov);ov.style.display='flex';const q=$('#xq');q.focus();q.select();xRun('');
+}
+function xRun(q){const res=$('#xres');if(!q){res.innerHTML='<span class="muted">…</span>';return;}
+ const hits=[];for(const c of chaps){const v=c.content||'';let i=v.toLowerCase().indexOf(q.toLowerCase());
+  while(i>=0&&hits.length<60){hits.push({n:c.number,t:c.title,s:i,snip:(i>40?'…':'')+v.slice(Math.max(0,i-40),i+q.length+60).replace(/\n/g,' ')});
+   i=v.toLowerCase().indexOf(q.toLowerCase(),i+q.length);}}
+ res.innerHTML=hits.length?hits.map((h,k)=>`<div class="xhit" data-k="${k}" style="padding:.5em .2em;border-bottom:1px solid var(--line);cursor:pointer"><b>№${h.n}</b> ${esc(h.t)} <span class="muted">· ${esc(h.snip)}</span></div>`).join(''):'<span class="muted">нічого не знайдено</span>';
+ window._xh=hits;
+ res.querySelectorAll('.xhit').forEach(el=>el.onclick=()=>{const h=window._xh[+el.dataset.k];$('#xov').style.display='none';
+  selectChapter(h.n);const q=$('#xq').value;const ta=$('#md');
+  ta.setSelectionRange(h.s,h.s+q.length);ta.focus();
+  const lh=parseFloat(getComputedStyle(ta).lineHeight)||24;ta.scrollTop=Math.max(0,(ta.value.slice(0,h.s).match(/\n/g)||[]).length*lh-150);});
+}
 /* init persisted toggles */
 if(LS.getItem('rb.light'))document.body.classList.add('light');
 if(LS.getItem('rb.norail'))document.body.classList.add('norail');
