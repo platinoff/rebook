@@ -82,7 +82,7 @@ fn img_size(b: &[u8]) -> Option<(u32, u32)> {
                 continue;
             }
             let m = b[i + 1];
-            if matches!(m, 0xC0 | 0xC1 | 0xC2 | 0xC3) {
+            if matches!(m, 0xC0..=0xC3) {
                 let h = u16::from_be_bytes(b[i + 5..i + 7].try_into().ok()?) as u32;
                 let w = u16::from_be_bytes(b[i + 7..i + 9].try_into().ok()?) as u32;
                 return Some((w, h));
@@ -144,19 +144,18 @@ pub fn cover_from_epub(epub: &Epub) -> Option<CoverArt> {
         }
     }
     // <meta name="cover" content="ID">
-    if href.is_none() {
-        if let Some(id) = opf
+    if href.is_none()
+        && let Some(id) = opf
             .split("<meta")
             .find(|s| s.contains("name=\"cover\""))
             .and_then(|s| attr(s.split('>').next().unwrap_or(s), "content"))
-        {
-            for seg in opf.split("<item") {
-                let tag = seg.split('>').next().unwrap_or("");
-                if attr(tag, "id") == Some(id) {
-                    href = attr(tag, "href").map(str::to_string);
-                    mime = attr(tag, "media-type").unwrap_or("").to_string();
-                    break;
-                }
+    {
+        for seg in opf.split("<item") {
+            let tag = seg.split('>').next().unwrap_or("");
+            if attr(tag, "id") == Some(id) {
+                href = attr(tag, "href").map(str::to_string);
+                mime = attr(tag, "media-type").unwrap_or("").to_string();
+                break;
             }
         }
     }
