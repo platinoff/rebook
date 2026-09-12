@@ -240,9 +240,22 @@ impl genpdf::PageDecorator for NumberedFooter {
     }
 }
 
-/// Render the interior PDF: one page per chapter start, trim `page` size,
-/// margins from the KDP gutter table, embedded fonts. Returns file bytes.
+/// Render the interior PDF. Default is RB-34's own justified engine
+/// (`crate::interior_pdf`); `REBOOK_PDF_ENGINE=genpdf` selects the legacy path.
 pub fn render_interior_pdf(
+    book: &Book,
+    chapters: &[Chapter],
+    trim: &Trim,
+    out_path: &Path,
+) -> Result<usize, String> {
+    if std::env::var("REBOOK_PDF_ENGINE").as_deref() == Ok("genpdf") {
+        return render_interior_pdf_genpdf(book, chapters, trim, out_path);
+    }
+    crate::interior_pdf::render(book, chapters, trim, out_path).map(|(n, _st)| n)
+}
+
+/// Legacy genpdf interior (uniform margins, no justification, footer numbers).
+pub fn render_interior_pdf_genpdf(
     book: &Book,
     chapters: &[Chapter],
     trim: &Trim,

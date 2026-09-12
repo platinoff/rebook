@@ -16,6 +16,7 @@ genpdf = "0.2"
 [dev-dependencies]
 tower = "0.5"
 http-body-util = "0.1"
+lopdf = "0.26"
 
 [[bin]]
 name = "rust_book"

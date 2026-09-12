@@ -1180,6 +1180,7 @@ dependencies = [
  "bookbinder",
  "genpdf",
  "http-body-util",
+ "lopdf",
  "serde",
  "serde_json",
  "tokio",

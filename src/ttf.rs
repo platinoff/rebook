@@ -26,6 +26,7 @@ pub struct TtfFont {
     pub base_font: String,
     cmap: Cmap,
     hmtx: Vec<u16>,
+    hmtx_lsb: Vec<i16>,
     n_hmetrics: u16,
 }
 
@@ -53,6 +54,21 @@ fn i16be(b: &[u8], i: usize) -> i16 {
 
 fn u32be(b: &[u8], i: usize) -> u32 {
     u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]])
+}
+
+/// sfnt table checksum: sum of big-endian 32-bit words (mod 2^32).
+fn table_checksum(b: &[u8]) -> u32 {
+    let mut s: u32 = 0;
+    for w in b.chunks(4) {
+        let q = [
+            w[0],
+            *w.get(1).unwrap_or(&0),
+            *w.get(2).unwrap_or(&0),
+            *w.get(3).unwrap_or(&0),
+        ];
+        s = s.wrapping_add(u32::from_be_bytes(q));
+    }
+    s
 }
 
 impl TtfFont {
@@ -106,6 +122,17 @@ impl TtfFont {
         let mut advances = Vec::with_capacity(n_hmetrics);
         for i in 0..n_hmetrics {
             advances.push(u16be(&data, hmtx.0 + i * 4));
+        }
+        let mut lsbs = Vec::with_capacity(num_glyphs as usize);
+        for i in 0..num_glyphs as usize {
+            let v = if i < n_hmetrics {
+                i16be(&data, hmtx.0 + i * 4 + 2)
+            } else if n_hmetrics > 0 {
+                i16be(&data, hmtx.0 + n_hmetrics * 4 + (i - n_hmetrics) * 2)
+            } else {
+                0
+            };
+            lsbs.push(v);
         }
         let cmap = Self::parse_cmap(&data, tables.get(b"cmap"))?;
         let name = tables
@@ -165,6 +192,7 @@ impl TtfFont {
             base_font: name,
             cmap,
             hmtx: advances,
+            hmtx_lsb: lsbs,
             n_hmetrics: n_hmetrics as u16,
         })
     }
@@ -287,6 +315,227 @@ impl TtfFont {
     pub fn advance_units(&self, gid: u16) -> u16 {
         let idx = (gid as usize).min(self.n_hmetrics.saturating_sub(1) as usize);
         self.hmtx.get(idx).copied().unwrap_or(0)
+    }
+
+    fn table(&self, tag: &[u8; 4]) -> Option<(usize, usize)> {
+        let num = u16be(&self.data, 4) as usize;
+        for i in 0..num {
+            let e = 12 + i * 16;
+            if e + 16 > self.data.len() {
+                break;
+            }
+            if &self.data[e..e + 4] == tag {
+                return Some((
+                    u32be(&self.data, e + 8) as usize,
+                    u32be(&self.data, e + 12) as usize,
+                ));
+            }
+        }
+        None
+    }
+
+    /// Byte ranges of `loca` entries (offset of `gid` may equal the next → empty glyph).
+    pub fn loca(&self) -> Vec<u32> {
+        let head_off = match self.table(b"head") {
+            Some(o) => o.0,
+            None => return Vec::new(),
+        };
+        let fmt = i16be(&self.data, head_off + 50);
+        let n = self.num_glyphs as usize + 1;
+        if fmt < 0 {
+            (0..n)
+                .map(|i| u32be(&self.data, self.loca_off() + i * 4))
+                .collect()
+        } else {
+            (0..n)
+                .map(|i| u16be(&self.data, self.loca_off() + i * 2) as u32 * 2)
+                .collect()
+        }
+    }
+
+    fn loca_off(&self) -> usize {
+        self.table(b"loca").map(|(o, _)| o).unwrap_or(0)
+    }
+
+    /// `glyf` table byte range in the file.
+    pub fn glyf_off_len(&self) -> Option<(usize, usize)> {
+        self.table(b"glyf")
+    }
+
+    /// Glyph data bytes (empty for missing/simple-empty glyphs).
+    pub fn glyph_bytes(&self, gid: u16) -> Vec<u8> {
+        let loca = self.loca();
+        let i = gid as usize;
+        if i + 1 >= loca.len() || loca[i] == loca[i + 1] {
+            return Vec::new();
+        }
+        let go = match self.glyf_off_len() {
+            Some((o, _)) => o,
+            None => return Vec::new(),
+        };
+        let a = go + loca[i] as usize;
+        let b = (go + loca[i + 1] as usize).min(self.data.len());
+        if a >= b {
+            return Vec::new();
+        }
+        self.data[a..b].to_vec()
+    }
+
+    /// Composite glyph member GIDs (empty for simple glyphs).
+    pub fn composite_parts(&self, gid: u16) -> Vec<u16> {
+        let g = self.glyph_bytes(gid);
+        if g.len() < 12 || i16be(&g, 2) >= 0 {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut i = 10usize; // after simple header (8) + composite first entry starts at 10
+        loop {
+            if i + 4 > g.len() {
+                break;
+            }
+            let flags = u16be(&g, i);
+            let idx = u16be(&g, i + 2);
+            out.push(idx);
+            i += 4;
+            let args1 = if flags & 0x0001 != 0 { 4 } else { 2 };
+            let args2 = if flags & 0x0008 != 0 { 4 } else { 2 };
+            i += args1 + args2;
+            if flags & 0x0020 == 0 {
+                break; // MORE_COMPONENTS clear
+            }
+        }
+        out
+    }
+
+    /// GID closure: the set plus every composite dependency, transitively.
+    pub fn closure(
+        &self,
+        seeds: &std::collections::BTreeSet<u16>,
+    ) -> std::collections::BTreeSet<u16> {
+        let mut out = seeds.clone();
+        let mut stack: Vec<u16> = seeds.iter().copied().collect();
+        while let Some(g) = stack.pop() {
+            for p in self.composite_parts(g) {
+                if out.insert(p) {
+                    stack.push(p);
+                }
+            }
+        }
+        out.insert(0); // .notdef always
+        out
+    }
+
+    /// Rebuild a minimal sfnt (cmap/glyf/head/hhea/hmtx/loca) containing only
+    /// the closure of `used`. GID numbering is preserved (unused GIDs become
+    /// empty glyphs), so Identity-H CIDs and the original cmap stay valid.
+    /// Times-full embeds are ~500 KB; a book needs ~60–120 KB.
+    pub fn subset(&self, used: &std::collections::BTreeSet<u16>) -> Result<Vec<u8>, String> {
+        let gids = self.closure(used);
+        let maxg = *gids.iter().next_back().ok_or("empty subset")? as usize;
+        if maxg >= self.num_glyphs as usize {
+            return Err(format!("gid {maxg} out of range"));
+        }
+        let n = maxg + 1;
+        let loca = self.loca();
+        if loca.len() < self.num_glyphs as usize + 1 {
+            return Err("short loca".to_string());
+        }
+        let (go, _) = self.glyf_off_len().ok_or("no glyf")?;
+        let mut glyf = Vec::new();
+        let mut offs: Vec<u32> = Vec::with_capacity(n + 1);
+        for g in 0..n {
+            offs.push(glyf.len() as u32);
+            if !gids.contains(&(g as u16)) {
+                continue;
+            }
+            let a = go + loca[g] as usize;
+            let b = (go + loca[g + 1] as usize).min(self.data.len());
+            if a < b {
+                glyf.extend_from_slice(&self.data[a..b]);
+                while glyf.len() % 4 != 0 {
+                    glyf.push(0);
+                }
+            }
+        }
+        offs.push(glyf.len() as u32);
+        let short = glyf.len() <= 131_070;
+        let mut loca_b = Vec::with_capacity((n + 1) * 4);
+        for o in &offs {
+            if short {
+                loca_b.extend_from_slice(&((o / 2) as u16).to_be_bytes());
+            } else {
+                loca_b.extend_from_slice(&o.to_be_bytes());
+            }
+        }
+        let mut hmtx_b = Vec::with_capacity(n * 4);
+        for g in 0..n {
+            let adv = self.advance_units(g as u16);
+            let lsb = if gids.contains(&(g as u16)) {
+                self.hmtx_lsb.get(g).copied().unwrap_or(0)
+            } else {
+                0
+            };
+            hmtx_b.extend_from_slice(&adv.to_be_bytes());
+            hmtx_b.extend_from_slice(&lsb.to_be_bytes());
+        }
+        let mut head = {
+            let (o, l) = self.table(b"head").ok_or("no head")?;
+            self.data[o..o + l].to_vec()
+        };
+        head[8..12].copy_from_slice(&0u32.to_be_bytes());
+        head[50..52].copy_from_slice(&(if short { 0i16 } else { 1i16 }).to_be_bytes());
+        let mut hhea = {
+            let (o, l) = self.table(b"hhea").ok_or("no hhea")?;
+            self.data[o..o + l].to_vec()
+        };
+        hhea[34..36].copy_from_slice(&(n as u16).to_be_bytes());
+        let maxp = {
+            let (o, l) = self.table(b"maxp").ok_or("no maxp")?;
+            let mut t = self.data[o..o + l].to_vec();
+            t[4..6].copy_from_slice(&(n as u16).to_be_bytes());
+            t
+        };
+        let cmap = {
+            let (o, l) = self.table(b"cmap").ok_or("no cmap")?;
+            self.data[o..o + l].to_vec()
+        };
+        let tables: [(&[u8; 4], Vec<u8>); 7] = [
+            (b"cmap", cmap),
+            (b"glyf", glyf),
+            (b"head", head),
+            (b"hhea", hhea),
+            (b"hmtx", hmtx_b),
+            (b"loca", loca_b),
+            (b"maxp", maxp),
+        ];
+        let tn = tables.len() as u16;
+        let pow2 = (tn as f64).log2().floor() as u32;
+        let search_range = 16 * (1 << pow2);
+        let mut out: Vec<u8> = Vec::new();
+        out.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+        out.extend_from_slice(&tn.to_be_bytes());
+        out.extend_from_slice(&(search_range as u16).to_be_bytes());
+        out.extend_from_slice(&(pow2 as u16).to_be_bytes());
+        out.extend_from_slice(&((tn as u32 * 16) - search_range).to_be_bytes()[..2]);
+        let mut body = Vec::new();
+        let mut dir = Vec::new();
+        let mut off = 12 + tn as usize * 16;
+        for (tag, bytes) in &tables {
+            let mut padded = bytes.clone();
+            while padded.len() % 4 != 0 {
+                padded.push(0);
+            }
+            let cs = table_checksum(&padded);
+            dir.extend_from_slice(*tag);
+            dir.extend_from_slice(&cs.to_be_bytes());
+            dir.extend_from_slice(&(off as u32).to_be_bytes());
+            dir.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+            off += padded.len();
+            body.extend_from_slice(&padded);
+        }
+        out.extend_from_slice(&dir);
+        out.extend_from_slice(&body);
+        Ok(out)
     }
 
     /// Advance width scaled to 1/1000 em (PDF /W units).

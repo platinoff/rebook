@@ -12,6 +12,7 @@ pub mod coverpdf;
 pub mod drafts;
 pub mod epub;
 pub mod interior;
+pub mod interior_pdf;
 pub mod kdp;
 pub mod pdfwriter;
 pub mod preflight;
