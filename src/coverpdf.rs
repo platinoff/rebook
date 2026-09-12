@@ -6,9 +6,22 @@
 use std::path::Path;
 
 use crate::coverdoc::CoverDoc;
-use crate::pdfwriter::{EmbeddedFont, PdfPageBuilder, parse_hex};
+use crate::pdfwriter::{
+    EmbeddedFont, PdfPageBuilder, PdfxProfile, ink_pct, parse_hex, rgb_to_cmyk,
+};
 use crate::standards::{BARCODE_ZONE_IN, BLEED_IN, HC_HINGE_IN, HC_WRAP_IN};
 use crate::ttf::TtfFont;
+
+/// Export options for the wrap PDF (RB-17: CMYK + PDF/X-1a for Ingram).
+#[derive(Debug, Clone, Default)]
+pub struct WrapOpts {
+    /// Convert all fills to DeviceCMYK (`k` ops).
+    pub cmyk: bool,
+    /// Emit the PDF/X-1a wrapper (XMP, OutputIntent, boxes).
+    pub pdfx: bool,
+    /// CMYK ICC profile bytes for `/DestOutputProfile` (full X-1a).
+    pub icc: Option<Vec<u8>>,
+}
 
 /// What the renderer managed/omitted.
 #[derive(Debug, Clone, Default)]
@@ -23,6 +36,23 @@ pub struct CoverPdfReport {
     pub barcode_bars: usize,
     /// Output bytes.
     pub bytes: usize,
+    /// CMYK export used.
+    pub cmyk: bool,
+    /// Max total ink coverage percent (gate: ≤ 240 for Ingram).
+    pub ink_max_pct: f64,
+}
+
+/// Fill a color as RGB or CMYK (RB-17), tracking worst-case ink.
+fn fill(page: &mut PdfPageBuilder, hex: &str, cmyk: bool, ink: &mut f64) {
+    let (r, g, b) = parse_hex(hex);
+    if cmyk {
+        let (c, m, y, k) = rgb_to_cmyk(r, g, b);
+        *ink = (*ink).max(ink_pct(c, m, y, k));
+        page.set_fill_cmyk(c, m, y, k);
+    } else {
+        *ink = (*ink).max(ink_pct(r, g, b, 0.0));
+        page.set_fill(r, g, b);
+    }
 }
 
 fn is_latin1(s: &str) -> bool {
@@ -31,6 +61,16 @@ fn is_latin1(s: &str) -> bool {
 
 /// Render the wrap page for `doc` into `out_path`.
 pub fn render_wrap_pdf(doc: &CoverDoc, out_path: &Path) -> Result<CoverPdfReport, String> {
+    render_wrap_pdf_opts(doc, out_path, &WrapOpts::default())
+}
+
+/// RB-17: full-control export — RGB/CMYK fills, PDF/X-1a wrapper with an
+/// optional CMYK ICC (`REBOOK_ICC_CMYK` env or `opts.icc`).
+pub fn render_wrap_pdf_opts(
+    doc: &CoverDoc,
+    out_path: &Path,
+    opts: &WrapOpts,
+) -> Result<CoverPdfReport, String> {
     let (w, h) = doc.canvas_in()?;
     let pt = |v: f64| v * 72.0;
     // PDF origin is bottom-left; CoverDoc y is top-down.
@@ -38,6 +78,8 @@ pub fn render_wrap_pdf(doc: &CoverDoc, out_path: &Path) -> Result<CoverPdfReport
     let mut page = PdfPageBuilder::new(pt(w), pt(h));
 
     let ebook = doc.mode == "ebook";
+    let mut ink_max = 0.0f64;
+    let cmyk = opts.cmyk;
     let (edge, spine, trim_w) = if ebook {
         (0.0, 0.0, w)
     } else {
@@ -56,24 +98,24 @@ pub fn render_wrap_pdf(doc: &CoverDoc, out_path: &Path) -> Result<CoverPdfReport
         .unwrap_or(crate::cover::Mode::Paperback);
 
     // back = whole sheet, then front panel, then spine
-    let (br, bg, bb) = parse_hex(&doc.bg_back);
-    page.set_fill(br, bg, bb);
+    fill(&mut page, &doc.bg_back, cmyk, &mut ink_max);
     page.rect(0.0, 0.0, pt(w), pt(h));
     if !ebook {
-        let (fr, fg, fb) = parse_hex(&doc.bg_front);
-        page.set_fill(fr, fg, fb);
+        fill(&mut page, &doc.bg_front, cmyk, &mut ink_max);
         page.rect(pt(edge + trim_w + spine), 0.0, pt(trim_w), pt(h));
         let spine_fill = doc.spine_bg.clone().unwrap_or_else(|| doc.bg_front.clone());
-        let (sr, sg, sb) = parse_hex(spine_fill.as_str());
-        page.set_fill(sr, sg, sb);
+        fill(&mut page, &spine_fill, cmyk, &mut ink_max);
         page.rect(pt(edge + trim_w), 0.0, pt(spine), pt(h));
     } else {
-        let (fr, fg, fb) = parse_hex(&doc.bg_front);
-        page.set_fill(fr, fg, fb);
+        fill(&mut page, &doc.bg_front, cmyk, &mut ink_max);
         page.rect(0.0, 0.0, pt(w), pt(h));
     }
     if !ebook && mode == crate::cover::Mode::CaseLaminate {
-        page.set_fill(0.55, 0.55, 0.55);
+        if cmyk {
+            page.set_fill_cmyk(0.0, 0.0, 0.0, 0.45);
+        } else {
+            page.set_fill(0.55, 0.55, 0.55);
+        }
         for x0 in [edge + trim_w - HC_HINGE_IN, edge + trim_w + spine] {
             page.rect(pt(x0), pt(edge), pt(HC_HINGE_IN), pt(h - 2.0 * edge));
         }
@@ -86,7 +128,12 @@ pub fn render_wrap_pdf(doc: &CoverDoc, out_path: &Path) -> Result<CoverPdfReport
     let by_bottom = h - edge - 0.25 - bh;
     if let Some(isbn) = &doc.isbn {
         let bits = crate::barcode::ean13_bits(isbn)?;
-        page.set_fill(0.0, 0.0, 0.0);
+        if cmyk {
+            page.set_fill_cmyk(0.0, 0.0, 0.0, 1.0);
+            ink_max = ink_max.max(100.0);
+        } else {
+            page.set_fill(0.0, 0.0, 0.0);
+        }
         let module = pt(bw - 0.5) / 95.0; // quiet zone ~0.25in total
         let x0 = pt(bx + 0.25);
         for (m, b) in bits.chars().enumerate() {
@@ -102,7 +149,11 @@ pub fn render_wrap_pdf(doc: &CoverDoc, out_path: &Path) -> Result<CoverPdfReport
         }
         // human-readable digits (Latin-1 safe)
         let digits = crate::standards::isbn_to_ean13(isbn)?;
-        page.set_fill(0.0, 0.0, 0.0);
+        if cmyk {
+            page.set_fill_cmyk(0.0, 0.0, 0.0, 1.0);
+        } else {
+            page.set_fill(0.0, 0.0, 0.0);
+        }
         page.text(
             pt(bx + bw / 2.0) - pt(0.55),
             pt(by_bottom) + pt(0.08),
@@ -141,7 +192,11 @@ pub fn render_wrap_pdf(doc: &CoverDoc, out_path: &Path) -> Result<CoverPdfReport
     } else {
         edge + trim_w + spine + trim_w / 2.0
     };
-    page.set_fill(1.0, 1.0, 1.0);
+    if cmyk {
+        page.set_fill_cmyk(0.0, 0.0, 0.0, 0.0);
+    } else {
+        page.set_fill(1.0, 1.0, 1.0);
+    }
     let mut placed = true;
     let mut any_embedded = false;
     for (x_in, y_top_in, size, text, _rot90) in [
@@ -195,6 +250,20 @@ pub fn render_wrap_pdf(doc: &CoverDoc, out_path: &Path) -> Result<CoverPdfReport
     rep.text_placed = placed;
     rep.text_embedded = any_embedded;
     rep.text_skipped = !placed;
+    rep.cmyk = cmyk;
+    rep.ink_max_pct = ink_max;
+    if opts.pdfx {
+        let icc = opts.icc.clone().or_else(|| {
+            std::env::var("REBOOK_ICC_CMYK")
+                .ok()
+                .and_then(|p| std::fs::read(p).ok())
+        });
+        page.set_pdfx(PdfxProfile {
+            condition: "Coated FOGRA39 (ISO 12647-2:2004)".to_string(),
+            icc,
+            trim: None,
+        });
+    }
 
     let bytes = page.build(if doc.title.text.trim().is_empty() {
         "rebook cover"
@@ -261,6 +330,51 @@ mod tests {
         );
         let s = String::from_utf8_lossy(&std::fs::read(&out).unwrap()).into_owned();
         assert!(s.contains("0 1 -1 0"), "rotated Tm for spine text");
+    }
+
+    #[test]
+    fn pdfx_cmyk_wrapper_is_pdf_x_1a() {
+        let d = doc_with(
+            CoverDoc::new("Ingram Test", "A", "hc", "6x9", 200, "cream"),
+            Some("978-3-16-148410-0"),
+        );
+        let out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("wrap-x.pdf");
+        let rep = render_wrap_pdf_opts(
+            &d,
+            &out,
+            &WrapOpts {
+                cmyk: true,
+                pdfx: true,
+                icc: None,
+            },
+        )
+        .unwrap();
+        assert!(rep.cmyk);
+        assert!(rep.ink_max_pct <= 240.0, "ink {}", rep.ink_max_pct);
+        let s = String::from_utf8_lossy(&std::fs::read(&out).unwrap()).into_owned();
+        assert!(s.contains("/OutputIntents"), "catalog OI");
+        assert!(s.contains("GTS_PDFXVersion"), "XMP conformance");
+        assert!(s.contains("PDF/X-1a:2001"));
+        assert!(s.contains("/TrimBox"), "page boxes");
+        assert!(s.contains(" k\n"), "CMYK fill ops");
+        assert!(!s.contains(" rg\n"), "no RGB fills in cmyk mode");
+    }
+
+    #[test]
+    fn ink_and_color_helpers() {
+        // naive conversion stays under the Ingram TAC gate
+        let (c, m, y, k) = crate::pdfwriter::rgb_to_cmyk(0.1, 0.2, 0.3);
+        assert!(crate::pdfwriter::ink_pct(c, m, y, k) <= 240.0);
+        assert_eq!(
+            crate::pdfwriter::rgb_to_cmyk(0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0, 1.0)
+        );
+        assert_eq!(
+            crate::pdfwriter::rgb_to_cmyk(1.0, 1.0, 1.0),
+            (0.0, 0.0, 0.0, 0.0)
+        );
     }
 
     #[test]

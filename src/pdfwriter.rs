@@ -23,6 +23,17 @@ pub struct EmbeddedFont {
     pub bbox_1000: (i32, i32, i32, i32),
 }
 
+/// PDF/X-1a wrapper settings for [`PdfPageBuilder::build`].
+#[derive(Debug, Clone, Default)]
+pub struct PdfxProfile {
+    /// `OutputConditionIdentifier`, e.g. Coated FOGRA39 (Ingram).
+    pub condition: String,
+    /// Optional ICC stream bytes for `/DestOutputProfile` (full X-1a).
+    pub icc: Option<Vec<u8>>,
+    /// Trim box in points; defaults to the full media box.
+    pub trim: Option<(f64, f64, f64, f64)>,
+}
+
 /// A page being built: ops accumulate as a content-stream `Vec<u8>`.
 #[derive(Debug, Clone)]
 pub struct PdfPageBuilder {
@@ -33,6 +44,7 @@ pub struct PdfPageBuilder {
     ops: Vec<u8>,
     embedded: Option<EmbeddedFont>,
     used_cids: std::collections::BTreeSet<u16>,
+    pdfx: Option<PdfxProfile>,
 }
 
 impl PdfPageBuilder {
@@ -44,12 +56,44 @@ impl PdfPageBuilder {
             ops: Vec::new(),
             embedded: None,
             used_cids: Default::default(),
+            pdfx: None,
         }
+    }
+
+    /// Enable PDF/X-1a document wrapping (catalog, boxes, XMP, OutputIntent).
+    pub fn set_pdfx(&mut self, profile: PdfxProfile) {
+        self.pdfx = Some(profile);
     }
 
     /// Set non-stroking (fill) color, sRGB components 0..=1.
     pub fn set_fill(&mut self, r: f64, g: f64, b: f64) {
         writeln!(self.ops, "{:.4} {:.4} {:.4} rg", cl(r), cl(g), cl(b)).ok();
+    }
+
+    /// PDF/X-1a fill: DeviceCMYK components 0..=1 (`k` operator).
+    pub fn set_fill_cmyk(&mut self, c: f64, m: f64, y: f64, k: f64) {
+        writeln!(
+            self.ops,
+            "{:.4} {:.4} {:.4} {:.4} k",
+            cl(c),
+            cl(m),
+            cl(y),
+            cl(k)
+        )
+        .ok();
+    }
+
+    /// PDF/X-1a stroke color.
+    pub fn set_stroke_cmyk(&mut self, c: f64, m: f64, y: f64, k: f64) {
+        writeln!(
+            self.ops,
+            "{:.4} {:.4} {:.4} {:.4} K",
+            cl(c),
+            cl(m),
+            cl(y),
+            cl(k)
+        )
+        .ok();
     }
 
     /// Set stroking color.
@@ -135,7 +179,18 @@ impl PdfPageBuilder {
         // object layout: 1 cat, 2 pages, 3 page, 4 contents, 5 F1,
         // [6 Type0, 7 CIDFont, 8 FontDescriptor, 9 FontFile2], Info last.
         let info_n: u32 = if emb.is_some() { 10 } else { 6 };
-        let n_objs = info_n;
+        let px = self.pdfx.clone();
+        let (xmp_n, oi_n, icc_n) = if px.is_some() {
+            (info_n + 1, info_n + 2, info_n + 3)
+        } else {
+            (0, 0, 0)
+        };
+        let last_obj = match &px {
+            Some(p) if p.icc.is_some() => icc_n,
+            Some(_) => oi_n,
+            None => info_n,
+        };
+        let n_objs = last_obj;
         let mut out = Vec::new();
         out.extend_from_slice(b"%PDF-1.4\n");
         let mut offsets = Vec::with_capacity(n_objs as usize);
@@ -145,12 +200,13 @@ impl PdfPageBuilder {
             buf.extend_from_slice(body);
             buf.extend_from_slice(b"\nendobj\n");
         };
-        obj(
-            &mut out,
-            &mut offsets,
-            1,
-            b"<< /Type /Catalog /Pages 2 0 R >>",
-        );
+        let catalog = match &px {
+            Some(_) => format!(
+                "<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /DisplayDocTitle true >> /OutputIntents [{oi_n} 0 R] /Metadata {xmp_n} 0 R >>"
+            ),
+            None => "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        };
+        obj(&mut out, &mut offsets, 1, catalog.as_bytes());
         obj(
             &mut out,
             &mut offsets,
@@ -162,10 +218,20 @@ impl PdfPageBuilder {
         } else {
             "<< /F1 5 0 R >>"
         };
-        let page = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /Resources << /Font {fonts} >> /Contents 4 0 R >>",
+        let mut page = format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}]",
             self.w_pt, self.h_pt
         );
+        if let Some(p) = &px {
+            let trim = p.trim.unwrap_or((0.0, 0.0, self.w_pt, self.h_pt));
+            page.push_str(&format!(
+                " /BleedBox [0 0 {:.4} {:.4}] /TrimBox [{:.4} {:.4} {:.4} {:.4}] /CropBox [0 0 {:.4} {:.4}]",
+                self.w_pt, self.h_pt, trim.0, trim.1, trim.2, trim.3, self.w_pt, self.h_pt
+            ));
+        }
+        page.push_str(&format!(
+            " /Resources << /Font {fonts} >> /Contents 4 0 R >>"
+        ));
         obj(&mut out, &mut offsets, 3, page.as_bytes());
         let stream_hdr = format!("<< /Length {} >>\nstream\n", content.len());
         offsets.push(out.len());
@@ -256,6 +322,41 @@ impl PdfPageBuilder {
         };
         offsets.push(out.len());
         write!(out, "{info_n} 0 obj\n{info}\nendobj\n").ok();
+        if let Some(p) = &px {
+            let xmp = xmp_packet(title, &p.condition);
+            offsets.push(out.len());
+            write!(
+                out,
+                "{xmp_n} 0 obj\n<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n",
+                xmp.len()
+            )
+            .ok();
+            out.extend_from_slice(xmp.as_bytes());
+            out.extend_from_slice(b"\nendstream\nendobj\n");
+            let cond = sanitize(&p.condition);
+            let dest = if p.icc.is_some() {
+                format!(" /DestOutputProfile {icc_n} 0 R")
+            } else {
+                String::new()
+            };
+            offsets.push(out.len());
+            write!(
+                out,
+                "{oi_n} 0 obj\n<< /Type /OutputIntent /S /GTS_PDFX /OutputConditionIdentifier ({cond}) /Registry (http://www.color.org) /Info ({cond}){dest} >>\nendobj\n"
+            )
+            .ok();
+            if let Some(icc) = &p.icc {
+                offsets.push(out.len());
+                write!(
+                    out,
+                    "{icc_n} 0 obj\n<< /N 4 /Alternate /DeviceCMYK /Length {} >>\nstream\n",
+                    icc.len()
+                )
+                .ok();
+                out.extend_from_slice(icc);
+                out.extend_from_slice(b"\nendstream\nendobj\n");
+            }
+        }
         let xref_pos = out.len();
         write!(out, "xref\n0 {}\n0000000000 65535 f \n", n_objs + 1).ok();
         for off in offsets {
@@ -273,6 +374,40 @@ impl PdfPageBuilder {
 
 fn cl(v: f64) -> f64 {
     v.clamp(0.0, 1.0)
+}
+
+/// Strip PDF string delimiters for safe `(literal)` embedding.
+fn sanitize(s: &str) -> String {
+    s.chars()
+        .filter(|c| !matches!(c, '(' | ')' | '\\'))
+        .collect::<String>()
+}
+
+/// Minimal PDF/X-1a XMP packet (dc:title + GTS_PDFXVersion conformance).
+fn xmp_packet(title: &str, condition: &str) -> String {
+    let t = sanitize(title);
+    let c = sanitize(condition);
+    format!(
+        "\u{feff}<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:pdfx=\"http://www.npes.org/pdfx/ns/id/\" pdfx:GTS_PDFXVersion=\"PDF/X-1a:2001\" pdfx:GTS_PDFXConformance=\"PDF/X-1a:2001\"/><rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">{t}</rdf:li></rdf:Alt></dc:title></rdf:Description><rdf:Description rdf:about=\"\" xmlns:pdfx=\"http://www.npes.org/pdfx/ns/id/\"><pdfx:GTS_PDFXOutputCondition>{c}</pdfx:GTS_PDFXOutputCondition></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>"
+    )
+}
+
+/// Naive sRGB(0..1) → CMYK(0..1) for vector fills (Ingram's TAC gate cares
+/// about raster images, which naive math never pushes past 200 % ink).
+pub fn rgb_to_cmyk(r: f64, g: f64, b: f64) -> (f64, f64, f64, f64) {
+    let k = 1.0 - cl(r).max(cl(g)).max(cl(b));
+    if k >= 1.0 - 1e-9 {
+        return (0.0, 0.0, 0.0, 1.0);
+    }
+    let c = (1.0 - cl(r) - k) / (1.0 - k);
+    let m = (1.0 - cl(g) - k) / (1.0 - k);
+    let y = (1.0 - cl(b) - k) / (1.0 - k);
+    (cl(c), cl(m), cl(y), cl(k))
+}
+
+/// Total area coverage (percent) of a CMYK color.
+pub fn ink_pct(c: f64, m: f64, y: f64, k: f64) -> f64 {
+    (c + m + y + k) * 100.0
 }
 
 /// Parse `#rgb`/`#rrggbb` hex; falls back to `(fallback)`.

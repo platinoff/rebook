@@ -480,12 +480,28 @@ fn cover_template(args: &[String]) -> Result<String, String> {
             },
         );
         doc.isbn = isbn.map(str::to_string);
+        let as_cmyk = args.iter().any(|a| a == "--cmyk");
         let pdf_path = out
             .unwrap_or_else(|| format!("build/cover_{}_{}_{}.pdf", trim.label, pages, mode.tag()));
-        let rep = rust_book::coverpdf::render_wrap_pdf(&doc, std::path::Path::new(&pdf_path))?;
+        let opts = rust_book::coverpdf::WrapOpts {
+            cmyk: as_cmyk,
+            pdfx: as_cmyk,
+            icc: None,
+        };
+        let rep = rust_book::coverpdf::render_wrap_pdf_opts(
+            &doc,
+            std::path::Path::new(&pdf_path),
+            &opts,
+        )?;
         println!(
-            "  wrap PDF {} ({} bytes, placed={} embedded={} barcode={} bars)",
-            pdf_path, rep.bytes, rep.text_placed, rep.text_embedded, rep.barcode_bars
+            "  wrap PDF {} ({} bytes, placed={} embedded={} barcode={} bars cmyk={} ink_max={:.0}%)",
+            pdf_path,
+            rep.bytes,
+            rep.text_placed,
+            rep.text_embedded,
+            rep.barcode_bars,
+            rep.cmyk,
+            rep.ink_max_pct
         );
         return Ok(pdf_path);
     }
