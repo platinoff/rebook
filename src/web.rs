@@ -1061,6 +1061,18 @@ mod tests {
         assert_eq!(v["trim_w_in"], 6.0);
         let (s, _) = get(router(fixture_state()), "/api/cover/dims?mode=hc&trim=5x8").await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
+        // RB-37: dust-jacket wrap width must include flaps + hinges beyond the panel.
+        let (s, b) = get(
+            router(fixture_state()),
+            "/api/cover/dims?mode=dj&trim=6x9&pages=200&paper=white",
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+        let v: serde_json::Value = serde_json::from_str(&b).unwrap();
+        assert!(
+            v["wrap_w_in"].as_f64().unwrap() > 6.0 + 6.0,
+            "dj wrap should exceed two 6in panels: {b}"
+        );
     }
 
     #[tokio::test]

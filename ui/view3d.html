@@ -39,7 +39,7 @@
  <div>
   <div class="bar">
    <label>📚 Книга (EPUB із полиці)<select id="bookSel" style="min-width:15em"><option>—</option></select></label>
-   <label>Формат<select id="fmt"><option value="hc">Hardcover (case)</option><option value="pb">Paperback</option><option value="ebook">eBook front</option></select></label>
+    <label>Формат<select id="fmt"><option value="hc">Hardcover (case)</option><option value="dj">Dust jacket (Ingram)</option><option value="pb">Paperback</option><option value="ebook">eBook front</option></select></label>
    <label>Trim<select id="trim"></select></label>
    <label>Сторінки<input id="pages" type="number" value="300" min="24" max="828" step="2" style="width:7em"/></label>
    <label style="gap:0"><input id="guides" type="checkbox" checked style="width:auto"/> накладки KDP</label>
@@ -54,8 +54,8 @@
 <script>
 const $=s=>document.querySelector(s);
 const TRIMS={pb:["5x8","5.06x7.81","5.25x8","5.5x8.5","6x9","6.14x9.21","6.69x9.61","7x10","7.5x9.25","8x10","8.25x8.25","8.5x11"],
- hc:["5.5x8.5","6x9","6.14x9.21","7x10","8.25x11"]};
-let pf=null,rx=-14,ry=-28,s3=40,books=[];
+ hc:["5.5x8.5","6x9","6.14x9.21","7x10","8.25x11"],dj:["5x8","5.5x8.5","6x9","7x10"]};
+let pf=null,rx=-14,ry=-28,s3=40,books=[],djD=null;
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 async function boot(){
  try{books=await (await fetch('/api/books')).json();}catch(e){books=[];}
@@ -64,19 +64,22 @@ async function boot(){
  if(books.length){const b=books.find(x=>x.id===pre)||books[0];$('#bookSel').value=b.id;}
  fillTrims();go();
 }
-function fillTrims(){const m=$('#fmt').value==='hc'?'hc':'pb';const cur=$('#trim').value;
+function fillTrims(){const v=$('#fmt').value;const m=v==='hc'||v==='dj'?v:'pb';const cur=$('#trim').value;
  $('#trim').innerHTML=TRIMS[m].map(t=>'<option'+(t===cur?' selected':(t==='6x9'&&TRIMS[m].includes('6x9')?' selected':''))+'>'+t+'</option>').join('');}
 $('#fmt').onchange=()=>{fillTrims();go();};
 $('#bookSel').onchange=go;$('#trim').onchange=go;$('#pages').onchange=go;$('#guides').onchange=()=>stage();
 $('#go').onclick=go;
 $('#reset').onclick=()=>{rx=-14;ry=-28;stage();};
 async function go(){
- const id=$('#bookSel').value;const mode=$('#fmt').value;
+ const id=$('#bookSel').value;let mode=$('#fmt').value;
  if(!id){$('#readout').textContent='немає книг';return;}
- const p=new URLSearchParams({mode,trim:$('#trim').value,pages:$('#pages').value||300,paper:'white'});
+ djD=null;
+ const geomMode=mode==='dj'?'hc':mode;
+ const p=new URLSearchParams({mode:geomMode,trim:$('#trim').value,pages:$('#pages').value||300,paper:'white'});
  try{const r=await fetch(`/api/books/${id}/preflight?`+p);pf=await r.json();if(!r.ok)throw new Error(pf.detail||r.status);}catch(e){$('#readout').textContent='preflight err';return;}
+ if(mode==='dj'){try{const r2=await fetch(`/api/cover/dims?`+new URLSearchParams({mode:'dj',trim:$('#trim').value,pages:$('#pages').value||300,paper:'white'}));djD=await r2.json();if(!r2.ok)djD=null;}catch(e){djD=null;}}
  const nOK=(pf.warnings||[]).filter(w=>!w.ok).length;
- $('#readout').textContent=(mode==='hc'?'hardcover · ':mode==='pb'?'paperback · ':'ebook · ')+'spine '+pf.spine_in.toFixed(4)+'″ · '+(nOK?nOK+' ⚠ увага':'усе ✓');
+ $('#readout').textContent=(mode==='hc'?'hardcover · ':mode==='dj'?'dust jacket · ':mode==='pb'?'paperback · ':'ebook · ')+(djD?`wrap ${djD.wrap_w_in.toFixed(2)}×${djD.wrap_h_in.toFixed(2)}″ · `:'')+'spine '+pf.spine_in.toFixed(4)+'″ · '+(nOK?nOK+' ⚠ увага':'усе ✓');
  renderWarns();s3=Math.min(60,Math.floor(300/pf.trim_h_in));stage();
 }
 function renderWarns(){const w=$('#warns');
@@ -109,8 +112,23 @@ function stage(){
  const spine=face(d,h,pf.spine_color,spineTxt,'rotateY(-90deg) translateZ('+(w/2)+'px)');
  const head=face(w,d,'#d8d4c8','','rotateX(90deg) translateZ('+(h/2)+'px)');
  const tail=face(w,d,'#b9b5a8','','rotateX(-90deg) translateZ('+(h/2)+'px)');
- const edge=face(d,h,'repeating-linear-gradient(90deg,#f4f1e8 0 2px,#c9c4b4 2px 4px)','','rotateY(90deg) translateZ('+(w/2)+'px)');
- b.innerHTML=front+back+spine+head+tail+edge;pose();}
+  const edge=face(d,h,'repeating-linear-gradient(90deg,#f4f1e8 0 2px,#c9c4b4 2px 4px)','','rotateY(90deg) translateZ('+(w/2)+'px)');
+  let dj='';
+  if($('#fmt').value==='dj'&&djD){
+   const ov=0.125*s3,wJ=w+2*ov,hJ=h+2*ov,dJ=d+2*ov;
+   const flapIn=Math.max(0.4,(djD.wrap_w_in-(2*pf.trim_w_in+djD.spine_in+0.5))/2),flapW=flapIn*s3;
+   const cloth='linear-gradient(135deg,#26364a,#16202c)',paper='#efe9db';
+   const art=(pf.cover&&pf.cover.data_uri)?'<img class="faceImg" src="'+pf.cover.data_uri+'" alt=""/>':'';
+   const hingeL='<div style="position:absolute;left:0;top:0;bottom:0;width:14%;background:linear-gradient(90deg,#00000066,transparent)"></div>';
+   const hingeR='<div style="position:absolute;right:0;top:0;bottom:0;width:14%;background:linear-gradient(270deg,#00000066,transparent)"></div>';
+   const jSp='<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:'+Math.min(dJ*.55,Math.max(9,s3*.45))+'px;white-space:nowrap;overflow:hidden;max-height:92%;color:#fff">'+esc(pf.title)+' — '+esc(pf.author)+'</div></div>';
+   dj=face(wJ,hJ,cloth,art+hingeL,'rotateY(0deg) translateZ('+(dJ/2)+'px)')
+    +face(wJ,hJ,pf.back_color||cloth,hingeR,'rotateY(180deg) translateZ('+(dJ/2)+'px)')
+    +face(dJ,hJ,pf.spine_color||cloth,jSp,'rotateY(-90deg) translateZ('+(wJ/2)+'px)')
+    +face(flapW,hJ-2,paper,'','translate3d('+(wJ/2-flapW/2)+'px,0,'+(dJ/2-2)+'px) rotateY(180deg)')
+    +face(flapW,hJ-2,paper,'','translate3d('+(wJ/2-flapW/2)+'px,0,'+(-dJ/2+2)+'px)');
+  }
+  b.innerHTML=front+back+spine+head+tail+edge+dj;pose();}
 function pose(){$('#book3d').style.transform='rotateX('+rx+'deg) rotateY('+ry+'deg)';}
 /* RB-30: mouse + touchpad (ctrl+wheel/pinch) + keyboard (arrows/PgUp/PgDn/0) */
 (function(){const st=$('#stage');st.tabIndex=0;

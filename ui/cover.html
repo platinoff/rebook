@@ -336,12 +336,11 @@ $('#applyBtn').onclick=async()=>{await render();$('#sstat').textContent='пер�
 let d3=null,rx=-14,ry=-28,s3=42;
 function f3d(ww,hh,dd,bg,html,tf){return '<div style="position:absolute;display:flex;align-items:center;justify-content:center;text-align:center;overflow:hidden;background:'+bg+';transform:translate(-50%,-50%) '+tf+';left:50%;top:50%;width:'+ww+'px;height:'+hh+'px;color:#fff;font-family:Georgia,serif;box-shadow:inset 0 0 30px rgba(0,0,0,.35)">'+(html||'')+'</div>';}
 async function build3d(){
- const mode=$('#smode').value;if(mode==='dj'){alert('Dust jacket 3D — у черзі (RB-27b)');return;}
- const p=new URLSearchParams({mode:mode==='ebook'?'pb':mode,trim:$('#strim').value,pages:$('#spages').value,paper:'white'});
+ const mode=$('#smode').value;
+ const p=new URLSearchParams({mode:mode==='ebook'?'pb':mode==='dj'?'hc':mode,trim:$('#strim').value,pages:$('#spages').value,paper:'white'});
  try{d3=await (await fetch('/api/cover/dims?'+p)).json();}catch(e){$('#v3Dims').textContent='dims: '+e;return;}
- $('#v3Dims').textContent=$('#smode').value==='hc'
-  ? 'hc case · trim '+d3.trim+' · spine '+d3.spine_in.toFixed(4)+'in · '+d3.pages+'p'
-  : 'trim '+d3.trim+' · spine '+d3.spine_in.toFixed(4)+'in · '+d3.pages+'p';
+ if(mode==='dj'){try{const wp=await (await fetch('/api/cover/dims?'+new URLSearchParams({mode:'dj',trim:$('#strim').value,pages:$('#spages').value,paper:'white'})));if(wp.ok){d3.wrap_w_in=wp.wrap_w_in;d3.dj=true;}}catch(e){}}
+ $('#v3Dims').textContent=(mode==='dj'?'dj on case · ':mode==='hc'?'hc case · ':'')+'trim '+d3.trim+' · spine '+d3.spine_in.toFixed(4)+'in · '+d3.pages+'p'+(d3.wrap_w_in?' · wrap '+d3.wrap_w_in.toFixed(2)+'in':'');
  stage3d();
 }
 function stage3d(){const b=$('#book3d');
@@ -356,8 +355,21 @@ function stage3d(){const b=$('#book3d');
  +f3d(d,h,0,bgS,'<div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:'+Math.min(sp*.62,Math.max(8,s3*.45))+'px;white-space:nowrap;overflow:hidden">'+esc3(tt)+' — '+esc3(au)+'</div>','rotateY(-90deg) translateZ('+(w/2)+'px)')
  +f3d(w,d,0,'linear-gradient(#eee,#bbb)','', 'rotateX(90deg) translateZ('+(h/2)+'px)')
  +f3d(w,d,0,'linear-gradient(#bbb,#eee)','', 'rotateX(-90deg) translateZ('+(h/2)+'px)')
- +f3d(d,h,0,'repeating-linear-gradient(90deg,#f4f1e8 0 2px,#c9c4b4 2px 4px)','','rotateY(90deg) translateZ('+(w/2)+'px)');
- pose();}
+  +f3d(d,h,0,'repeating-linear-gradient(90deg,#f4f1e8 0 2px,#c9c4b4 2px 4px)','','rotateY(90deg) translateZ('+(w/2)+'px)');
+  if(d3.dj&&d3.wrap_w_in){
+   const ov=0.125*s3,wJ=w+2*ov,hJ=h+2*ov,dJ=d+2*ov;
+   const flapIn=Math.max(0.4,(d3.wrap_w_in-(2*d3.trim_w_in+d3.spine_in+0.5))/2),flapW=flapIn*s3;
+   const cloth='linear-gradient(135deg,#26364a,#16202c)',paper='#efe9db';
+   const hingeL='<div style="position:absolute;left:0;top:0;bottom:0;width:14%;background:linear-gradient(90deg,#00000066,transparent)"></div>';
+   const hingeR='<div style="position:absolute;right:0;top:0;bottom:0;width:14%;background:linear-gradient(270deg,#00000066,transparent)"></div>';
+   const jt='<div style="padding:1em;max-width:90%"><div style="font-size:'+Math.max(10,Math.min(30,s3*.7))+'px">'+esc3(tt)+'</div></div>';
+   b.innerHTML+=f3d(wJ,hJ,dJ,cloth,jt+hingeL,'rotateY(0deg) translateZ('+(dJ/2)+'px)')
+    +f3d(wJ,hJ,dJ,bgB,hingeR,'rotateY(180deg) translateZ('+(dJ/2)+'px)')
+    +f3d(dJ,hJ,0,bgS,'<div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:'+Math.max(8,s3*.4)+'px;white-space:nowrap;overflow:hidden">'+esc3(tt)+' — '+esc3(au)+'</div>','rotateY(-90deg) translateZ('+(wJ/2)+'px)')
+    +f3d(flapW,hJ-2,0,paper,'','translate3d('+(wJ/2-flapW/2)+'px,0,'+(dJ/2-2)+'px) rotateY(180deg)')
+    +f3d(flapW,hJ-2,0,paper,'','translate3d('+(wJ/2-flapW/2)+'px,0,'+(-dJ/2+2)+'px)');
+  }
+  pose();}
 function esc3(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function pose(){const b=$('#book3d');b.style.transform='rotateX('+rx+'deg) rotateY('+ry+'deg)';}
 $('#v3Btn').onclick=async()=>{const st=$('#stage3d');st.hidden=!st.hidden;$('#v3Reset').hidden=st.hidden;
