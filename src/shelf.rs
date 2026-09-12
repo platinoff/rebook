@@ -469,6 +469,22 @@ fn tag_of(fmt: &str) -> &'static str {
     if fmt == "paperback" { "pb" } else { "hc" }
 }
 
+/// RB-39: list products across several roots (per-book `products/` dirs);
+/// dedupe by slug, first root wins.
+pub fn list_products_in(roots: &[PathBuf]) -> Vec<ProductSummary> {
+    let mut seen: std::collections::BTreeSet<String> = Default::default();
+    let mut out: Vec<ProductSummary> = Vec::new();
+    for r in roots {
+        for p in list_products(r) {
+            if seen.insert(p.slug.clone()) {
+                out.push(p);
+            }
+        }
+    }
+    out.sort_by(|a, b| a.slug.cmp(&b.slug));
+    out
+}
+
 fn write_checklist(path: &Path, format: &str, extra: &str) -> Result<(), String> {
     let body = format!(
         "# KDP checklist — {format}\n\n- upload the strict EPUB from this folder (EPUBCheck-clean: mimetype first/stored, nav.xhtml, dcterms:modified)\n{extra}- DRM: per-book toggle; DRM-free buyers may download EPUB since 2026-01-20\n- cover (front-only JPEG/TIFF 1600×2560) uploaded separately in KDP\n"
@@ -744,5 +760,46 @@ mod tests {
             ..Default::default()
         };
         assert!(build_product(&base, &book, &chapters, &cfg).is_err());
+    }
+
+    #[test]
+    fn list_products_in_merges_and_dedupes_roots() {
+        let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("products-union");
+        let _ = std::fs::remove_dir_all(&base);
+        let manifest = serde_json::to_vec(&PackageManifest {
+            format: "hardcover".to_string(),
+            trim: "6x9".to_string(),
+            pages: 240,
+            paper: "white".to_string(),
+            spine_in: 0.5,
+            gutter_in: 0.625,
+            cover_in: (12.685, 9.25),
+            barcode_zone_in: (2.0, 1.16),
+            ean13: None,
+            pages_estimated: false,
+        })
+        .unwrap();
+        let mk = |root: &Path, slug: &str| {
+            let dir = root.join(slug);
+            std::fs::create_dir_all(dir.join("ebook")).unwrap();
+            std::fs::write(dir.join("ebook").join(format!("{slug}.epub")), b"PK").unwrap();
+            std::fs::create_dir_all(dir.join("hardcover")).unwrap();
+            std::fs::write(dir.join("hardcover").join("manifest.json"), &manifest).unwrap();
+            std::fs::write(dir.join(format!("{slug}-hc.zip")), b"PK").unwrap();
+        };
+        let a = base.join("a");
+        let b = base.join("b");
+        mk(&a, "one");
+        mk(&b, "two");
+        mk(&a, "two");
+        let all = list_products_in(&[a.clone(), b.clone()]);
+        let slugs: Vec<&str> = all.iter().map(|p| p.slug.as_str()).collect();
+        assert_eq!(slugs, vec!["one", "two"], "merged, sorted, deduped");
+        let two = all.iter().find(|p| p.slug == "two").unwrap();
+        assert!(two.has_ebook);
+        assert_eq!(two.packages[0].pages, 240);
+        assert_eq!(two.packages[0].zip.as_deref(), Some("two-hc.zip"));
     }
 }

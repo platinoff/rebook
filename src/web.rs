@@ -36,6 +36,45 @@ impl AppState {
     pub fn snapshot(&self) -> Vec<LoadedBook> {
         crate::viewer::discover_books(&self.root).unwrap_or_else(|_| self.books.clone())
     }
+
+    /// RB-39: configured products dir + a sibling `products/` for every shelf
+    /// book (`.\\en\\build\\x.epub` → `en/products`) — the live server must see
+    /// per-book build trees regardless of cwd, not just a relative root.
+    pub fn product_roots(&self) -> Vec<std::path::PathBuf> {
+        let mut roots = vec![self.products_root.clone()];
+        for b in self.snapshot() {
+            let p = std::path::Path::new(&b.path);
+            if let Some(book_dir) = p.parent().and_then(|x| x.parent()) {
+                let cand = book_dir.join("products");
+                if !roots.contains(&cand) {
+                    roots.push(cand);
+                }
+            }
+        }
+        roots
+    }
+
+    /// Resolve `<root>/<slug>/<file>` against every known products root
+    /// (ebook files live one level deeper in `<slug>/ebook/`).
+    pub fn find_product_file(&self, slug: &str, file: &str) -> Option<std::path::PathBuf> {
+        self.product_roots()
+            .into_iter()
+            .flat_map(|r| {
+                [
+                    r.join(slug).join(file),
+                    r.join(slug).join("ebook").join(file),
+                ]
+            })
+            .find(|p| p.is_file())
+    }
+
+    /// Resolve a print package dir (`<root>/<slug>/<format>`) across roots.
+    pub fn find_package_dir(&self, slug: &str, format: &str) -> Option<std::path::PathBuf> {
+        self.product_roots()
+            .into_iter()
+            .map(|r| r.join(slug).join(format))
+            .find(|p| p.join("manifest.json").is_file())
+    }
 }
 
 const STUDIO_HTML: &str = include_str!("../ui/studio.html");
@@ -165,7 +204,7 @@ async fn api_book_preflight(
 
 /// JSON list of built products (folders under `products/`).
 async fn api_products(State(st): State<Arc<AppState>>) -> Response {
-    let items = crate::shelf::list_products(&st.products_root);
+    let items = crate::shelf::list_products_in(&st.product_roots());
     let body = serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string());
     text_response(StatusCode::OK, "application/json; charset=utf-8", body)
 }
@@ -182,7 +221,10 @@ async fn api_product_download(
     if !allowed {
         return draft_err("unknown product file".to_string());
     }
-    let path = st.products_root.join(&slug).join(&file);
+    let path = match st.find_product_file(&slug, &file) {
+        Some(p) => p,
+        None => return draft_err("product file not found".to_string()),
+    };
     match std::fs::read(&path) {
         Ok(bytes) => {
             let mime = if file.ends_with(".epub") {
@@ -441,9 +483,15 @@ async fn api_draft_delete(
 
 /// `GET /api/print/check/{slug}/{format}` → KDP print-gate v2 JSON items
 /// for a built package under `products/` (slug/format strictly validated).
-async fn api_print_check(AxPath((slug, format)): AxPath<(String, String)>) -> Response {
+async fn api_print_check(
+    State(st): State<Arc<AppState>>,
+    AxPath((slug, format)): AxPath<(String, String)>,
+) -> Response {
     if crate::viewer::slug_is_safe(&slug) && (format == "paperback" || format == "hardcover") {
-        let dir = std::path::Path::new("products").join(&slug).join(&format);
+        let dir = match st.find_package_dir(&slug, &format) {
+            Some(d) => d,
+            None => return draft_err(format!("no {} package for {slug}", format)),
+        };
         match crate::shelf::verify_package(&dir) {
             Ok(items) => {
                 let body = serde_json::to_string(&items).unwrap_or_else(|_| "[]".into());
@@ -922,6 +970,40 @@ mod tests {
         assert_eq!(books[1].id, "same-book-2");
     }
 
+    #[test]
+    fn product_roots_add_per_book_products_dir() {
+        let epub = crate::viewer::Epub::from_entries(vec![(
+            "mimetype".to_string(),
+            b"application/epub+xml".to_vec(),
+        )]);
+        let st = AppState {
+            books: vec![LoadedBook {
+                id: "x".into(),
+                path: "en/build/web-prod.epub".into(),
+                book: Book {
+                    title: "X".into(),
+                    author: "A".into(),
+                    edition: 1,
+                    year: 2026,
+                    format: "EPUB 3.2".into(),
+                    language: "uk".into(),
+                    chapters: vec![],
+                },
+                epub,
+            }],
+            root: std::path::PathBuf::from("target/no-such-shelf-root"),
+            drafts_root: std::path::PathBuf::from("target/d"),
+            products_root: std::path::PathBuf::from("products"),
+        };
+        let roots = st.product_roots();
+        assert!(
+            roots
+                .iter()
+                .any(|r| r == &std::path::PathBuf::from("en/products")),
+            "en/build/x.epub must contribute en/products: {roots:?}"
+        );
+    }
+
     #[tokio::test]
     async fn products_api_and_download() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -971,6 +1053,12 @@ mod tests {
         )
         .await;
         assert_eq!(s, StatusCode::OK);
+        let (s, _) = get(
+            router(st.clone()),
+            "/api/products/download/web-prod/web-prod.epub",
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "ebook lives one level deeper");
         let (s, _) = get(
             router(st.clone()),
             "/api/products/download/web-prod/..%2Fsecret",
