@@ -186,7 +186,7 @@ debounce).
 | 22 | Shelf card grid + dark/light theme + language badges | ✅ `eafb522` |
 | 25 | Studio find/replace (Ctrl+F) + cross-chapter search (Ctrl+Shift+F) + click-preview→caret | ✅ band 255 |
 | 24 | Complete print packages (interior.pdf + cover-wrap.pdf + epub-in-zip) — EN HC delivered | ✅ `8554eba` |
-| 23 | Focus mode, slash menu, quick-open | queued |
+| 23 | Focus/zen mode (F9, typewriter scroll), slash menu, Ctrl+P quick-open, cheatsheet | ✅ band 258 |
 | 26 | Studio meta panel (author/lang/cover/formats/trim-pages-isbn via API) + per-draft build + delete | ✅ band 257 |
 
 Shortcut canon: Ctrl+B/I/E/K, Alt+1..3, Ctrl+S ritual, Ctrl+P quick-open,

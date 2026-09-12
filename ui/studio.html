@@ -21,6 +21,10 @@
  #goals{display:flex;gap:.9em;align-items:center;font-size:.85em;color:var(--mut)}
  #goals input{width:5.5em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.2em .4em}
  main{display:grid;grid-template-columns:250px 1fr 420px;gap:0;height:calc(100vh - 49px)}
+ body.zen main{grid-template-columns:1fr}
+ body.zen .rail,body.zen #prevPane,body.zen header #goals,body.zen .bar{display:none}
+ body.zen{background:var(--bg)}
+ body.zen textarea#md{max-width:38em;margin:0 auto;min-height:100vh;padding-top:30vh;font-size:17px}
  body.norail main{grid-template-columns:1fr 420px}
  body.noprev main{grid-template-columns:250px 1fr}
  body.norail.noprev main{grid-template-columns:1fr}
@@ -293,6 +297,9 @@ $('#titleIn').addEventListener('input',markDirty);
   const mod=e.ctrlKey||e.metaKey;
   if(e.key==='Escape'){if($('#sheet').classList.contains('on'))$('#sheet').classList.remove('on');
    const xv=$('#xov');if(xv&&xv.style.display!=='none')xv.style.display='none';
+   const qv=$('#qov');if(qv&&qv.style.display!=='none')qv.style.display='none';
+   if(slOpen){slOpen=false;slashUI();return;}
+   if(zen){toggleZen();return;}
    if($('#find').style.display==='flex'){closeFind();}return;}
   if(mod&&e.key==='f'){e.preventDefault();if(e.shiftKey)openXFind();else openFind();return;}
   if(mod&&/^[123]$/.test(e.key)&&e.altKey){linePrefix('#'.repeat(+e.key)+' ');e.preventDefault();return;}
@@ -325,7 +332,7 @@ function touchGoals(){
 function showGoals(){const g=JSON.parse(LS.getItem(goalKey())||'{}');$('#gToday').textContent=g.today||0;$('#gStreak').textContent='🔥 '+(g.streak||0);$('#gTarget').value=g.target||0;}
 $('#gTarget').onchange=touchGoals;
 /* cheatsheet */
-$('#keysT').innerHTML=[['Ctrl+B','**bold**'],['Ctrl+I','*italic*'],['Ctrl+E','`code`'],['Ctrl+K','[link]()'],['Alt+1/2/3','#/##/###'],['Ctrl+S','save now'],['Ctrl+F','find & replace'],['Ctrl+Shift+F','search all chapters'],['Ctrl+P quick-open','(RB-23)'],['Ctrl+1 / Ctrl+2','toggle rails'],['? ','this sheet'],['⋮⋮ drag','reorder chapters'],['dbl-click title','rename'],['click preview','jump caret']].map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+$('#keysT').innerHTML=[['Ctrl+B','**bold**'],['Ctrl+I','*italic*'],['Ctrl+E','`code`'],['Ctrl+K','[link]()'],['Alt+1/2/3','#/##/###'],['Ctrl+S','save now'],['Ctrl+F','find & replace'],['Ctrl+Shift+F','search all chapters'],['Ctrl+P','quick-open chapter'],['F9','focus/zen (Esc exit)'],['/ at line start','slash menu'],['Ctrl+1 / Ctrl+2','toggle rails'],['? ','this sheet'],['⋮⋮ drag','reorder chapters'],['dbl-click title','rename'],['click preview','jump caret']].map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join('');
 /* new chapter */
 $('#addChap').onclick=async()=>{
  if(!cur){const name=prompt('Назва чернетки / book title:');if(!name)return;
@@ -401,6 +408,61 @@ $('#mDel').onclick=async()=>{if(!cur||!confirm('Видалити чернетк�
  await fetch('/api/drafts/'+cur.id,{method:'DELETE'});cur=null;chaps=[];
  $('#editorbar').hidden=true;$('#editor').hidden=true;await loadDrafts();};
 
+/* RB-23: focus (zen+typewriter), slash menu, quick-open */
+let zen=false;
+function toggleZen(){zen=!zen;document.body.classList.toggle('zen',zen);
+ $('#metaPanel')&&($('#metaPanel').open=$('#metaPanel').open&&zen);if(zen)typeScroll();$('#md').focus();}
+function typeScroll(){const ta=$('#md');if(!zen)return;const lh=parseFloat(getComputedStyle(ta).lineHeight)||24;
+ const ln=(ta.value.slice(0,ta.selectionStart).match(/\n/g)||[]).length;
+ ta.scrollTop=Math.max(0,ln*lh-ta.clientHeight/2);}
+$('#md').addEventListener('keyup',typeScroll);$('#md').addEventListener('click',typeScroll);
+/* slash menu */
+const SLASH=[['chapter','новий розділ','## '],['break','розрив сторінки','\n---\n'],['quote','цитата','> '],['code','код-фенс','```\n','\n```'],['h2','заголовок','## '],['h3','підзаголовок','### '],['hr','розділювач','\n---\n'],['epigraph','епіграф','> '] ];
+let slQ='',slOpen=false;
+function slashUI(){let d=$('#slash');if(!d){d=document.createElement('div');d.id='slash';
+  d.style.cssText='position:fixed;z-index:8;background:var(--panel);border:1px solid var(--line);border-radius:10px;min-width:220px;box-shadow:0 8px 30px rgba(0,0,0,.4)';
+  document.body.appendChild(d);d.onclick=e=>{const it=e.target.closest('[data-i]');if(it)slashPick(+it.dataset.i);};}
+ if(!slOpen){d.style.display='none';return;}
+ const items=SLASH.filter(s=>s[0].startsWith(slQ));
+ const ta=$('#md'),cr=ta.getBoundingClientRect();
+ d.style.left=(cr.left+40)+'px';d.style.top=Math.min(innerHeight-220,cr.top+60)+'px';
+ d.innerHTML=items.length?items.map((s,k)=>'<div data-i="'+SLASH.indexOf(s)+'" style="padding:.45em .8em;cursor:pointer'+(k===0?';background:var(--bg)':'')+'"><b>/'+s[0]+'</b> <span class="muted">'+s[1]+'</span></div>').join('')
+  :'<div class="muted" style="padding:.5em .8em">—</div>';
+ d.style.display='block';}
+function slashInsert(txt){const ta=$('#md'),s=ta.selectionStart;ta.value=ta.value.slice(0,s)+txt+ta.value.slice(s);ta.focus();markDirty();paint();}
+function slashPick(i){const s=SLASH[i];if(!s)return;slOpen=false;slQ='';slashUI();
+ const ta=$('#md'),st=ta.selectionStart;
+ // strip the typed "/query" at line start
+ let ls=ta.value.lastIndexOf('\n',st-1)+1;const frag=ta.value.slice(ls,st);
+ if(frag.startsWith('/')){ta.value=ta.value.slice(0,ls)+ta.value.slice(st);ta.setSelectionRange(ls,ls);}
+ if(s[0]==='chapter'){if(cur)$('#addChap').click();}
+ else if(s[2]&&s[3]!==undefined){slashInsert(s[2]+'\n'+s[3]);}
+ else slashInsert(s[2]);}
+$('#md').addEventListener('input',e=>{const ta=$('#md'),s=ta.selectionStart,ls=ta.value.lastIndexOf('\n',s-1)+1,frag=ta.value.slice(ls,s);
+ const m=frag.match(/^\/([a-z0-9]*)$/);if(m){slOpen=true;slQ=m[1];}else{slOpen=false;}slashUI();});
+/* quick-open */
+function openQ(){let o=$('#qov');if(!o){o=document.createElement('div');o.id='qov';
+  o.style.cssText='position:fixed;inset:0;background:rgba(5,8,14,.6);display:flex;align-items:flex-start;justify-content:center;z-index:9';
+  o.innerHTML='<div style="margin-top:10vh;background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(560px,90vw)"><input id="qin" placeholder="розділ… (назва або №)" style="width:100%;box-sizing:border-box;background:none;border:0;outline:none;color:var(--txt);padding:.8em 1em;font:inherit"/><div id="qres" style="max-height:50vh;overflow:auto"></div></div>';
+  document.body.appendChild(o);o.onclick=e=>{if(e.target===o)o.style.display='none';};
+  $('#qin').oninput=e=>qRun(e.target.value);$('#qin').onkeydown=e=>{if(e.key==='Escape')o.style.display='none';if(e.key==='Enter'){const f=$('#qres .qhit');f&&f.click();}};}
+ o.style.display='flex';$('#qin').value='';qRun('');$('#qin').focus();}
+function qRun(q){const el=$('#qres');el.innerHTML='';if(!cur){return;}
+ const items=chaps.filter(c=>!q||c.title.toLowerCase().includes(q.toLowerCase())||('#'+c.number).startsWith(q));
+ el.innerHTML=items.slice(0,15).map(c=>'<div class="qhit" data-n="'+c.number+'" style="padding:.5em 1em;cursor:pointer;border-top:1px solid var(--line)"><b>№'+c.number+'</b> '+esc(c.title||'—')+'</div>').join('')||'<div class="muted" style="padding:.6em 1em">—</div>';
+ el.querySelectorAll('.qhit').forEach(h=>h.onclick=()=>{const n=+h.dataset.n;$('#qov').style.display='none';selectChapter(n);});}
+document.addEventListener('keydown',e=>{
+ const mod=e.ctrlKey||e.metaKey;
+ if(mod&&e.key.toLowerCase()==='p'&&!e.shiftKey){e.preventDefault();openQ();return;}
+ if(e.key==='F9'||(mod&&e.shiftKey&&(e.key==='F11'||e.key==='f11'))){e.preventDefault();toggleZen();return;}
+ if(slOpen&&['ArrowDown','ArrowUp','Enter','Escape'].includes(e.key)){
+  const d=$('#slash');if(!d||d.style.display==='none')return;
+  const its=[...d.querySelectorAll('[data-i]')];if(!its.length)return;
+  let k=its.findIndex(x=>x.style.background!=='');if(k<0)k=0;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();its[k].style.background='';
+   const nk=(k+(e.key==='ArrowDown'?1:its.length-1))%its.length;its[nk].style.background='var(--bg)';}
+  if(e.key==='Enter'){e.preventDefault();its[k].click();}
+  if(e.key==='Escape'){slOpen=false;slashUI();}}});
 /* init persisted toggles */
 if(LS.getItem('rb.light'))document.body.classList.add('light');
 if(LS.getItem('rb.norail'))document.body.classList.add('norail');
