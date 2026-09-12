@@ -74,13 +74,16 @@
   <label>Текст корінця<select id="sspinetxt"><option value="on">auto (pages&gt;79)</option><option value="off">вимкнено</option></select></label>
   <label>Обкладинка-картинка<input id="simg" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"/></label>
  </form>
- <div class="bar" style="display:flex;gap:.5em;margin-top:.6em;">
+ <div class="bar" style="display:flex;gap:.5em;margin-top:.6em;flex-wrap:wrap;">
   <button id="renderBtn">Рендер</button>
   <button id="saveBtn" class="ghost">Зберегти cover.json у чернетку</button>
+  <button id="applyBtn" class="ghost">Застосувати переміщення</button>
   <button id="svgBtn" class="ghost">SVG ↓</button>
-  <button id="pngBtn" class="ghost">PNG 300DPI ↓</button>
+  <button id="pngBtn" class="ghost">PNG ↓</button>
+  <span id="layBox" class="meta" style="display:flex;gap:.5em;align-items:center"></span>
   <span id="sstat" class="meta"></span>
  </div>
+ <p class="meta">Клік по шару — перетягни мишею; стрілки nudge 1px (Shift 10px); Del — прибрати текст; Esc — зняти вибір.</p>
  <div id="preview"></div>
 </section>
 </div>
@@ -147,22 +150,90 @@ function applyDoc(){
  $('#stitle').value=doc.title.text;
  $('#sauthor').value=doc.author.text.replace(/^by\s+/,'');
  imgData=doc.front_image||null;
+ moved={};Object.entries(doc.offsets||{}).forEach(([k,v])=>moved[k]=[v[0]*300,v[1]*300]);
+ hidden={title:!doc.title.text.trim(),author:!doc.author.text.trim()};
 }
 $('#simg').onchange=async()=>{
  const f=$('#simg').files[0];if(!f){imgData=null;return;}
  imgData=await new Promise(r=>{const rd=new FileReader();rd.onload=()=>r(rd.result);rd.readAsDataURL(f);});
 };
+let moved={},hidden={};
+function collect(){
+ const d={mode:$('#smode').value,trim:$('#strim').value,pages:+$('#spages').value,paper:'white',
+  bg_front:$('#sbg').value,bg_back:$('#sbg2').value,
+  spine_bg:$('#sspine').value,front_image:imgData,
+  title:{text:$('#stitle').value||' ',x:0,y:0,pt:36,color:'#ffffff',spine:false},
+  author:{text:'by '+($('#sauthor').value||''),x:0,y:0,pt:18,color:'#e6e6e6',spine:false},
+  spine_title:null,
+  offsets:Object.fromEntries(Object.entries(moved).map(([k,v])=>[k,[v[0]/300,v[1]/300]]))};
+ if(hidden.title)d.title.text=' ';if(hidden.author)d.author.text=' ';
+ return d;
+}
 async function render(){
- const d=collect();
+ const d=collect();doc=d;
  const r=await fetch('/api/cover',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(d)});
  const svg=await r.text();
  if(!r.ok){$('#sstat').textContent=svg.slice(0,120);return;}
- if($('#sspinetxt').value==='off'){/* server auto-gates spine text by pages; strip locally for preview */
-  $('#preview').innerHTML=svg.replace(/<text[^>]*rotate\(-90[^>]*<\/text>/,'');}
- else $('#preview').innerHTML=svg;
- $('#sstat').textContent='';
- return svg;
+ let out=svg;
+ if($('#sspinetxt').value==='off')out=out.replace(/<g id="layer-spine"[\s\S]*?<\/g>/,'');
+ if(hidden.spine)out=out.replace(/<g id="layer-spine"[\s\S]*?<\/g>/,'');
+ $('#preview').innerHTML=out;
+ $('#sstat').textContent='';initCanvas();
+ return out;
 }
+/* --- RB-21 interactive canvas --- */
+let sel=null;
+const LIDS=['layer-title','layer-author','layer-spine','layer-image','layer-bg-front','layer-bg-spine','layer-bg-back'];
+function initCanvas(){
+ const svgEl=$('#preview svg');if(!svgEl)return;
+ LIDS.forEach(id=>{const el=svgEl.querySelector('#'+id);if(!el)return;
+  const tr=(el.getAttribute('transform')||'').match(/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/);
+  if(!moved[id])moved[id]=[tr?+tr[1]:0,tr?+tr[2]:0];
+  el.style.cursor='move';
+  el.addEventListener('pointerdown',e=>{e.preventDefault();select(el,id);
+   const sx=e.clientX,sy=e.clientY,b=moved[id].slice();
+   const mv=ev=>{const ctm=svgEl.getScreenCTM();moved[id]=[b[0]+(ev.clientX-sx)/ctm.a,b[1]+(ev.clientY-sy)/ctm.d];
+    applyT(svgEl,id);drawBox(svgEl,el);};
+   const up=()=>{document.removeEventListener('pointermove',mv);document.removeEventListener('pointerup',up);};
+   document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);});
+ });
+ drawLayBox(svgEl);
+}
+function applyT(svgEl,id){const el=svgEl.querySelector('#'+id);if(!el)return;const m=moved[id]||[0,0];
+ const base=(el.getAttribute('data-base-t')!==undefined)?el.getAttribute('data-base-t'):(el.getAttribute('transform')||'');
+ if(!el.hasAttribute('data-base-t'))el.setAttribute('data-base-t',base.match(/translate\([^)]*\)/)?base.replace(/translate\([^)]*\)/,''):base);
+ el.setAttribute('transform',(el.getAttribute('data-base-t')+' translate('+m[0]+' '+m[1]+')').trim());}
+function select(el,id){const svgEl=el.closest('svg');drawBox(svgEl,el);}
+function drawBox(svgEl,el){if(!svgEl)return;const old=svgEl.querySelector('.selbox');if(old)old.remove();
+ try{const bb=el.getBBox();const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  r.setAttribute('class','selbox');r.setAttribute('x',bb.x-6);r.setAttribute('y',bb.y-6);
+  r.setAttribute('width',bb.width+12);r.setAttribute('height',bb.height+12);
+  r.setAttribute('fill','none');r.setAttribute('stroke','#7aa2f7');r.setAttribute('stroke-dasharray','8,6');r.setAttribute('stroke-width','3');r.setAttribute('pointer-events','none');
+  svgEl.appendChild(r);}catch(e){}}
+function drawLayBox(svgEl){
+ const box=$('#layBox');box.innerHTML='';
+ [['title','назва'],['author','автор'],['spine','корінець']].forEach(([k,name])=>{
+  const el=svgEl&&svgEl.querySelector('#layer-'+k);if(!el)return;
+  const lb=document.createElement('label');
+  lb.innerHTML='<input type="checkbox" '+(hidden[k]?'':'checked')+'/> '+name;
+  lb.querySelector('input').onchange=e=>{hidden[k]=!e.target.checked;el.style.opacity=e.target.checked?1:0;if(!e.target.checked){}};
+  box.appendChild(lb);});
+}
+document.addEventListener('keydown',e=>{
+ if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;
+ const svgEl=$('#preview svg');if(!svgEl)return;const cur=svgEl.querySelector('.selbox');
+ if(e.key==='Escape'){if(cur){cur.remove();}return;}
+ if(!e.target.closest) {}
+ if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
+  if(!svgEl._lastSel)return;const d=e.shiftKey?10:1;
+  const m=e.key==='ArrowLeft'?[-d,0]:e.key==='ArrowRight'?[d,0]:e.key==='ArrowUp'?[0,-d]:[0,d];
+  moved[svgEl._lastSel]=[moved[svgEl._lastSel][0]+m[0],moved[svgEl._lastSel][1]+m[1]];
+  applyT(svgEl,svgEl._lastSel);const el=svgEl.querySelector('#'+svgEl._lastSel);drawBox(svgEl,el);e.preventDefault();}
+});
+// remember last selection for nudges
+$('#preview').addEventListener('pointerdown',e=>{const svgEl=$('#preview svg');if(!svgEl)return;
+ const g=e.target.closest('[id^="layer-"]');if(g){svgEl._lastSel=g.id.replace(/^.*?(layer-\w+)$/,'$1');const id=g.id;
+  const cb=svgEl.querySelector('.selbox');if(cb){const bb=g.getBBox();cb.setAttribute('x',bb.x-6);cb.setAttribute('y',bb.y-6);cb.setAttribute('width',bb.width+12);cb.setAttribute('height',bb.height+12);} }});
 $('#renderBtn').onclick=render;
 $('#sf').addEventListener('input',()=>render());
 $('#saveBtn').onclick=async()=>{
@@ -172,6 +243,7 @@ $('#saveBtn').onclick=async()=>{
  const r=await fetch('/api/drafts/'+id+'/cover',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(doc)});
  $('#sstat').textContent=r.ok?'cover.json збережено у '+id:await r.text();
 };
+$('#applyBtn').onclick=async()=>{await render();$('#sstat').textContent='переміщення застосовано';};
 $('#svgBtn').onclick=async()=>{const svg=await render();if(!svg)return;
  const a=document.createElement('a');a.href='data:image/svg+xml;utf8,'+encodeURIComponent(svg);a.download=(doc?doc.mode:'cover')+'-cover.svg';a.click();};
 $('#pngBtn').onclick=async()=>{const svg=await render();if(!svg)return;

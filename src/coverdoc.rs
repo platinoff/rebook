@@ -70,6 +70,9 @@ pub struct CoverDoc {
     /// Optional spine text (auto-gated by `pages > 79`).
     #[serde(default)]
     pub spine_title: Option<TextLayer>,
+    /// RB-21 canvas nudges: layer id → (dx, dy) in inches (applied as SVG translate).
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub offsets: std::collections::HashMap<String, (f64, f64)>,
 }
 
 fn default_trim() -> String {
@@ -119,6 +122,7 @@ impl CoverDoc {
                 spine: false,
             },
             spine_title: None,
+            offsets: Default::default(),
         };
         doc.auto_layout();
         doc
@@ -228,7 +232,7 @@ impl CoverDoc {
             self.trim, self.pages
         ));
         s.push_str(&format!(
-            "  <rect width=\"{w_px:.0}\" height=\"{h_px:.0}\" fill=\"{}\"/>\n",
+            "  <rect id=\"layer-bg-back\" width=\"{w_px:.0}\" height=\"{h_px:.0}\" fill=\"{}\"/>\n",
             esc(&self.bg_back)
         ));
         if self.mode != "ebook" {
@@ -252,7 +256,7 @@ impl CoverDoc {
                 .unwrap_or_else(|| self.bg_front.clone());
             // front panel + spine as rects over the back fill
             s.push_str(&format!(
-                "  <rect x=\"{:.0}\" y=\"{:.0}\" width=\"{:.0}\" height=\"{:.0}\" fill=\"{}\"/>\n",
+                "  <rect id=\"layer-bg-front\" x=\"{:.0}\" y=\"{:.0}\" width=\"{:.0}\" height=\"{:.0}\" fill=\"{}\"/>\n",
                 px(edge + trim.w + spine),
                 px(edge),
                 px(trim.w),
@@ -260,7 +264,7 @@ impl CoverDoc {
                 esc(&self.bg_front)
             ));
             s.push_str(&format!(
-                "  <rect x=\"{:.0}\" y=\"{:.0}\" width=\"{:.0}\" height=\"{:.0}\" fill=\"{}\"/>\n",
+                "  <rect id=\"layer-bg-spine\" x=\"{:.0}\" y=\"{:.0}\" width=\"{:.0}\" height=\"{:.0}\" fill=\"{}\"/>\n",
                 px(edge + trim.w),
                 px(edge),
                 px(spine),
@@ -269,24 +273,33 @@ impl CoverDoc {
             ));
             if let Some(img) = &self.front_image {
                 s.push_str(&format!(
-                    "  <image href=\"{img}\" x=\"{:.0}\" y=\"{:.0}\" width=\"{:.0}\" height=\"{:.0}\" preserveAspectRatio=\"xMidYMid slice\"/>\n",
+                    "  <image id=\"layer-image\" href=\"{img}\" x=\"{:.0}\" y=\"{:.0}\" width=\"{:.0}\" height=\"{:.0}\" preserveAspectRatio=\"xMidYMid slice\"/>\n",
                     px(edge + trim.w + spine), px(edge), px(trim.w), px(h - 2.0 * edge)
                 ));
             }
         } else if let Some(img) = &self.front_image {
             s.push_str(&format!(
-                "  <image href=\"{img}\" x=\"0\" y=\"0\" width=\"{w_px:.0}\" height=\"{h_px:.0}\" preserveAspectRatio=\"xMidYMid slice\"/>\n"
+                "  <image id=\"layer-image\" href=\"{img}\" x=\"0\" y=\"0\" width=\"{w_px:.0}\" height=\"{h_px:.0}\" preserveAspectRatio=\"xMidYMid slice\"/>\n"
             ));
         }
-        for layer in [
+        for (i, layer) in [
             Some(&self.title),
             Some(&self.author),
             self.spine_title.as_ref(),
         ]
         .into_iter()
         .flatten()
+        .enumerate()
         {
+            let lid = ["title", "author", "spine"][i];
+            let off = self
+                .offsets
+                .get(lid)
+                .map(|(dx, dy)| format!(" transform=\"translate({:.0} {:.0})\"", px(*dx), px(*dy)))
+                .unwrap_or_default();
+            s.push_str(&format!("  <g id=\"layer-{lid}\"{off}>\n"));
             s.push_str(&render_text(px, layer));
+            s.push_str("  </g>\n");
         }
         s.push_str("</svg>\n");
         Ok(s)
@@ -362,6 +375,17 @@ mod tests {
         assert!(svg.contains("Автор"));
         assert!(svg.contains("rotate(-90"));
         assert!(!svg.contains("stroke-dasharray")); // artwork, not guides
+        // RB-21 layer ids for the interactive canvas
+        for id in [
+            "layer-bg-back",
+            "layer-bg-front",
+            "layer-bg-spine",
+            "layer-title",
+            "layer-author",
+            "layer-spine",
+        ] {
+            assert!(svg.contains(id), "missing {id}");
+        }
     }
 
     #[test]
