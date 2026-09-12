@@ -59,6 +59,10 @@ fn main() {
             Ok(()) => {}
             Err(e) => eprintln!("Error: {}", e),
         },
+        "interior-pdf" => match build_interior(&args[2..]) {
+            Ok(path) => println!("✓ Interior PDF: {path}"),
+            Err(e) => eprintln!("Error: {}", e),
+        },
         "check-print" => {
             let dir = args
                 .get(2)
@@ -308,6 +312,37 @@ fn check_print(dir: &str) -> Result<(), String> {
         println!("✗ print gate: {failed} FAIL");
     }
     Ok(())
+}
+
+/// RB-15: render the interior print PDF for the resolved project.
+fn build_interior(args: &[String]) -> Result<String, String> {
+    let proj = BookProject::resolve();
+    let book = rust_book::load_book(&proj.json)?;
+    let chapters = rust_book::load_chapters(&proj.base, &book)?;
+    let mut trim = "6x9";
+    let mut out = "build/interior.pdf".to_string();
+    let mut i = 0usize;
+    let mut positionals: Vec<&str> = Vec::new();
+    while i < args.len() {
+        if args[i] == "--out" {
+            out = args.get(i + 1).cloned().ok_or("--out needs a value")?;
+            i += 2;
+        } else {
+            positionals.push(args[i].as_str());
+            i += 1;
+        }
+    }
+    if let Some(t) = positionals.first() {
+        trim = t;
+    } else if let Ok(bytes) = std::fs::read(proj.label("product.json")) {
+        if let Ok(cfg) = serde_json::from_slice::<rust_book::shelf::ProductConfig>(&bytes) {
+            trim = Box::leak(cfg.trim.into_boxed_str());
+        }
+    }
+    let tr = rust_book::standards::find_trim(rust_book::standards::PAPERBACK_TRIMS, trim)
+        .ok_or_else(|| format!("unknown trim {trim}"))?;
+    rust_book::interior::render_interior_pdf(&book, &chapters, tr, std::path::Path::new(&out))?;
+    Ok(out)
 }
 
 /// Build every targeted product format for the resolved book project.

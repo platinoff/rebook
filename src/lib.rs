@@ -10,6 +10,7 @@ pub mod cover;
 pub mod coverdoc;
 pub mod drafts;
 pub mod epub;
+pub mod interior;
 pub mod kdp;
 pub mod shelf;
 pub mod standards;
