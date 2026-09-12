@@ -134,3 +134,16 @@ RB-15 interior PDF (KDP RGB, genpdf) → RB-16 wrap-cover PDF (svg2pdf/printpdf)
 → RB-17 IngramSpark PDF/X-CMYK. Crate pick required before implementation
 (`printpdf`/`genpdf`/`pdf-writer` — see research note); tickets on GSV board
 product `rebook`.
+
+**RB-15 landed** `ce50d4c` (band 245, genpdf 0.2): custom trim size via
+`set_paper_size(Size)` (mm), margins from the gutter table, PageBreak per
+chapter, `REBOOK_FONT_TTF*` overrides → system Times/Georgia/Arial. Known
+gaps rolled into RB-16: page numbers (recto), font subsetting (11.8 MB
+bloat), justify alignment (genpdf has Left/Center/Right only).
+
+**RB-16 API intel (probed 2026-09-12):** genpdf 0.2 ships printpdf ^0.3.4
+(OLD API); crates.io printpdf 0.12.8 is the NEW 2nd-iteration API (different
+types — do not mix). `genpdf::render` Area exposes `print_str`, `draw_line`,
+`add_image` — NO filled-rect/rotation → cover-wrap artwork should go through
+**svg2pdf + classic printpdf 0.3.4 (matching genpdf's dependency)** or a
+custom `Element` painting rects as dense `draw_line` fills; decision in-band.
