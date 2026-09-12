@@ -41,6 +41,7 @@ impl AppState {
 const STUDIO_HTML: &str = include_str!("../ui/studio.html");
 const COVER_HTML: &str = include_str!("../ui/cover.html");
 const PRODUCTS_HTML: &str = include_str!("../ui/products.html");
+const VIEW3D_HTML: &str = include_str!("../ui/view3d.html");
 
 /// Build the router over a frozen set of discovered books.
 pub fn router(state: Arc<AppState>) -> Router {
@@ -49,6 +50,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/studio", get(studio_page))
         .route("/cover", get(cover_page))
         .route("/products", get(products_page))
+        .route("/view3d", get(view3d_page))
         .route("/api/products", get(api_products))
         .route(
             "/api/products/download/{slug}/{file}",
@@ -110,16 +112,21 @@ async fn health() -> &'static str {
     "ok"
 }
 
-async fn studio_page() -> Html<&'static str> {
-    Html(STUDIO_HTML)
+async fn studio_page() -> Html<String> {
+    Html(crate::viewer::inject_nav(STUDIO_HTML, "/studio"))
 }
 
-async fn cover_page() -> Html<&'static str> {
-    Html(COVER_HTML)
+async fn cover_page() -> Html<String> {
+    Html(crate::viewer::inject_nav(COVER_HTML, "/cover"))
 }
 
-async fn products_page() -> Html<&'static str> {
-    Html(PRODUCTS_HTML)
+async fn products_page() -> Html<String> {
+    Html(crate::viewer::inject_nav(PRODUCTS_HTML, "/products"))
+}
+
+/// RB-28: dedicated 3D viewer with a book picker (discoverability fix).
+async fn view3d_page() -> Html<String> {
+    Html(crate::viewer::inject_nav(VIEW3D_HTML, "/view3d"))
 }
 
 /// JSON list of built products (folders under `products/`).
@@ -1011,6 +1018,23 @@ mod tests {
         assert_eq!(v["trim_w_in"], 6.0);
         let (s, _) = get(router(fixture_state()), "/api/cover/dims?mode=hc&trim=5x8").await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn nav_and_view3d_pages() {
+        let st = fixture_state();
+        let (s, b) = get(router(st.clone()), "/view3d").await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(b.contains("rb-nav"));
+        assert!(b.contains("id=\"bookSel\""));
+        let (s, b) = get(router(st.clone()), "/studio").await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(b.contains("rb-nav"));
+        assert!(b.contains("/view3d"));
+        let (s, b) = get(router(st.clone()), "/books").await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(b.contains("rb-nav"));
+        assert!(b.contains("🧊 3D"));
     }
 
     #[test]

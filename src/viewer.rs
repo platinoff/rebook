@@ -480,6 +480,41 @@ fn is_attr_char(b: u8) -> bool {
 }
 
 /// Render the page for a book index (`/`  or `/{id}/`).
+/// The five primary zones for the shared top navigation.
+pub const NAV_ITEMS: [(&str, &str); 5] = [
+    ("/", "Полиця"),
+    ("/studio", "Studio"),
+    ("/cover", "Обкладинки"),
+    ("/view3d", "🧊 3D"),
+    ("/products", "Продукти"),
+];
+
+/// A compact, self-contained top nav bar. `active` is the current path so
+/// its link is highlighted. Uses only class hooks styled by `viewer_css`.
+pub fn nav_html(active: &str) -> String {
+    let links: Vec<String> = NAV_ITEMS
+        .iter()
+        .map(|(href, label)| {
+            let cls = if *href == active {
+                " class=\"active\""
+            } else {
+                ""
+            };
+            format!("<a{cls} href=\"{href}\">{label}</a>")
+        })
+        .collect();
+    format!(
+        "<style>.rb-nav{{position:sticky;top:0;z-index:7;display:flex;gap:.9em;align-items:center;padding:.5em .9em;background:#161922;border-bottom:1px solid #2f3542;font:600 14px/1.4 system-ui,'Segoe UI',sans-serif;color:#9aa0ac}}.rb-nav .rb-brand{{color:#7aa2f7;font-weight:800;letter-spacing:.04em}}.rb-nav a{{color:#9aa0ac;text-decoration:none;padding:.2em .1em;border-bottom:2px solid transparent}}.rb-nav a:hover{{color:#e6e6e6}}.rb-nav a.active{{color:#7aa2f7;border-bottom-color:#7aa2f7}}.rb-nav .rb-home{{margin-left:auto;font-weight:400;font-size:.85em}}</style>\
+         <nav class=\"rb-nav\"><span class=\"rb-brand\">rebook</span>{}<a class=\"rb-home\" href=\"/books\">усі книги →</a></nav>",
+        links.join("")
+    )
+}
+
+/// Inject the shared nav into a static page at its `<!--rbnav-->` marker.
+pub fn inject_nav(html: &str, active: &str) -> String {
+    html.replace("<!--rbnav-->", &nav_html(active))
+}
+
 fn render_index(epub: &Epub, book: &Book, book_id: &str) -> String {
     let report = kdp_check(epub, book);
     let passed = report.passed();
@@ -531,10 +566,11 @@ fn render_index(epub: &Epub, book: &Book, book_id: &str) -> String {
 <link rel="stylesheet" href="/styles.css"/>
 </head>
 <body>
+{nav}
 <header>
 <h1>{title}</h1>
 <p class="author">Автор: {author} <span class="meta">· {lang} · EPUB 3.2</span></p>
-<a class="shelf-link" href="/books">☷ Усі книги на сервері</a> · <a class="shelf-link" href="/products">📦 Продукти (KDP-пакети)</a>
+<a class="shelf-link" href="/view3d?book={id}">🧊 дивитись у 3D</a> · <a class="shelf-link" href="/books">☷ усі книги</a>
 </header>
 
 <section class="frame book">
@@ -566,6 +602,7 @@ fn render_index(epub: &Epub, book: &Book, book_id: &str) -> String {
         author = html_esc(&book.author),
         lang = html_esc(&book.language),
         id = book_id,
+        nav = nav_html("/"),
         epub_name = html_esc("*.epub"),
         badge_out = badge_out,
         badge_cls = badge_cls,
@@ -628,7 +665,8 @@ fn render_shelf(books: &[LoadedBook]) -> String {
              \x20 <p class=\"author\">{author} <span class=\"langbadge lb-{lc}\">{lang}</span> <span class=\"meta\">· {n} розд. · ~{w}</span></p>\n\
              \x20 <p class=\"meta\">{path}</p>\n\
              \x20 <p><a class=\"btn\" href=\"/{id}/chapter/1\">Читати</a> \
-             \x20 <a class=\"btn\" href=\"/{id}/check\">KDP-перевірка</a></p>\n\
+             \x20 <a class=\"btn\" href=\"/{id}/check\">KDP-перевірка</a> \
+             \x20 <a class=\"btn\" style=\"border-color:#7aa2f7\" href=\"/view3d?book={id}\">🧊 3D</a></p>\n\
              </div>\n",
             id = b.id,
             title = html_esc(&b.book.title),
@@ -650,14 +688,15 @@ fn render_shelf(books: &[LoadedBook]) -> String {
 <style>
  .langbadge{{display:inline-block;padding:.05em .5em;border-radius:6px;font-size:.75em;font-weight:600;vertical-align:middle}}
  .lb-uk{{background:#2e7d32;color:#fff}} .lb-en{{background:#1565c0;color:#fff}}
- .themeChip{{position:fixed;top:.6em;right:.8em;z-index:5;background:var(--panel,#232734);color:var(--text,#e6e6e6);border:1px solid var(--line,#2f3542);border-radius:8px;padding:.25em .7em;cursor:pointer;font:inherit}}
+  .themeChip{{position:fixed;top:3.1em;right:.8em;z-index:5;background:var(--panel,#232734);color:var(--text,#e6e6e6);border:1px solid var(--line,#2f3542);border-radius:8px;padding:.25em .7em;cursor:pointer;font:inherit}}
 </style>
 </head>
 <body>
+{nav}
 <button class="themeChip" id="themeChip">◐</button>
 <header>
 <h1>Книжкова полиця</h1>
-<p class="author">Знайдено EPUB: <span class="meta">{count}</span> · <a class="a" href="/products" style="color:#7aa2f7">📦 Продукти →</a> · <a class="a" href="/studio" style="color:#7aa2f7">✎ Studio →</a></p>
+<p class="author">Знайдено EPUB: <span class="meta">{count}</span></p>
 </header>
 {cards}
 <script>
@@ -670,6 +709,7 @@ fn render_shelf(books: &[LoadedBook]) -> String {
 "#,
         count = books.len(),
         cards = cards,
+        nav = nav_html("/"),
     )
 }
 
@@ -677,8 +717,14 @@ fn render_shelf(books: &[LoadedBook]) -> String {
 fn viewer_css(epub: &Epub) -> String {
     let base = epub.text("OEBPS/styles.css").unwrap_or_default();
     let chrome = r#"
-/* viewer chrome — dark theme */
-:root{
+ /* viewer chrome — dark theme */
+ .rb-nav{position:sticky;top:0;z-index:7;display:flex;gap:.9em;align-items:center;padding:.5em .9em;background:#161922;border-bottom:1px solid #2f3542;font:600 14px/1.4 system-ui,'Segoe UI',sans-serif}
+ .rb-nav .rb-brand{color:#7aa2f7;font-weight:800;letter-spacing:.04em}
+ .rb-nav a{color:#9aa0ac;text-decoration:none;padding:.2em .1em;border-bottom:2px solid transparent}
+ .rb-nav a:hover{color:#e6e6e6}
+ .rb-nav a.active{color:#7aa2f7;border-bottom-color:#7aa2f7}
+ .rb-nav .rb-home{margin-left:auto;font-weight:400;font-size:.85em}
+ :root{
   --bg:#12141a; --panel:#1b1e27; --panel2:#232734;
   --text:#e6e6e6; --muted:#9aa0ac; --accent:#7aa2f7;
   --ok:#3fb950; --fail:#f85149; --line:#2f3542;
