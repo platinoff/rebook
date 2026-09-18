@@ -175,6 +175,7 @@ pub fn build_product(
                     output_path: out.to_string_lossy().into_owned(),
                     cover_image: cover,
                     language: book.language.clone(),
+                    isbn: book.isbn.clone().or_else(|| cfg.isbn.clone()),
                 };
                 generate_epub(&config, book, chapters)?;
                 paths.ebook = Some(out);
@@ -643,6 +644,7 @@ mod tests {
             year: 2026,
             format: "EPUB 3.2".to_string(),
             language: "uk".to_string(),
+            isbn: None,
             chapters: vec![ChapterMeta {
                 number: 1,
                 title: "One".to_string(),

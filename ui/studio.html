@@ -130,6 +130,8 @@
    <input id="mCover" type="file" accept="image/png,image/jpeg" style="width:100%;margin-top:.2em;font-size:.8em"/>
    <img id="mThumb" alt="" style="display:none;max-width:100%;margin-top:.4em;border-radius:6px;border:1px solid var(--line)"/>
    <div id="mCoverFile" class="muted" style="display:none;font-size:.72em;margin-top:.2em"></div>
+   <label class="muted" style="display:block;font-size:.8em;margin-top:.5em" data-i18n="isbn">ISBN (print)</label>
+   <input id="mIsbn" style="width:100%;margin-top:.2em" placeholder="978-…"/>
    <label class="muted" style="display:block;font-size:.8em;margin-top:.5em" data-i18n="formats">формати</label>
    <div id="mFormats" style="display:flex;gap:.7em;margin-top:.3em;font-size:.85em">
     <label><input type="checkbox" value="ebook"/> ebook</label>
@@ -139,6 +141,7 @@
    <div style="display:flex;gap:.4em;flex-wrap:wrap;margin-top:.7em">
     <button class="btn" id="mSave" data-i18n="msave">Зберегти</button>
     <button class="btn ghost" id="mBuild" data-i18n="mbuild">📦 Build products</button>
+    <button class="btn ghost" id="mTr" data-i18n="mtr" title="Пиши рідною, потім fork у другу мову">⇄ Перекласти видання</button>
    </div>
    <div id="mBuildOut" class="muted" style="font-size:.75em;margin-top:.4em;white-space:pre-wrap"></div>
    <button class="btn ghost" id="mDel" style="margin-top:.6em;color:var(--bad);border-color:var(--bad)" data-i18n="mdel">✕ Видалити чернетку</button>
@@ -201,12 +204,14 @@ const L={
   keys:'Гарячі клавіші',idle:'Готово',saving:'збереження…',saved:'Збережено',failed:'помилка — повторити',
   del:'Видалити розділ?', sure:'Перейменувати — Enter, скасувати — Esc', chap:'Розділ', renamed:'перейменовано', reordered:'порядок збережено',
   meta:'⚙ Мета книги', author:'автор', lang:'мова', cover:'обкладинка', formats:'формати (для Build products)',
-  msave:'Зберегти', mbuild:'📦 Build products', mdel:'✕ Видалити чернетку'},
+  msave:'Зберегти', mbuild:'📦 Build products', mdel:'✕ Видалити чернетку',
+  mtr:'⇄ Перекласти видання', mtrbusy:'копіюю видання…', mtrok:'нова мовна редакція', isbn:'ISBN (print)'},
  en:{app:'Studio — drafts',shelf:'Shelf',cover:'Covers',products:'Products',target:'goal',today:'today',new:'＋ chapter',
   keys:'Keyboard shortcuts',idle:'Ready',saving:'saving…',saved:'Saved',failed:'failed — retry',
   del:'Delete this chapter?', sure:'Rename — Enter, Esc cancels', chap:'Chapter', renamed:'renamed', reordered:'order saved',
   meta:'⚙ Book meta', author:'author', lang:'language', cover:'cover', formats:'formats (for Build products)',
-  msave:'Save', mbuild:'📦 Build products', mdel:'✕ Delete draft'}
+  msave:'Save', mbuild:'📦 Build products', mdel:'✕ Delete draft',
+  mtr:'⇄ Translate edition', mtrbusy:'forking edition…', mtrok:'new language edition', isbn:'ISBN (print)'}
 };
 let lang=LS.getItem('rb.lang')||'uk';
 function T(k){return (L[lang]&&L[lang][k])||L.uk[k]||k;}
@@ -463,7 +468,8 @@ $$('.bar button').forEach(b=>b.onclick=()=>{const a=b.dataset.act;
  if(mod&&e.key==='2'){document.body.classList.toggle('noprev');LS.setItem('rb.noprev',document.body.classList.contains('noprev')?'1':'');}
 });
 $('#themeChip').onclick=()=>{document.body.classList.toggle('light');LS.setItem('rb.light',document.body.classList.contains('light')?'1':'');};
-$('#langChip').onclick=()=>{lang=lang==='uk'?'en':'uk';LS.setItem('rb.lang',lang);applyI18n();renderChaps();pill('');};
+$('#langChip').onclick=()=>{const next=lang==='uk'?'en':'uk';if(window.rbSetLang)window.rbSetLang(next);else{lang=next;LS.setItem('rb.lang',lang);applyI18n();renderChaps();pill('');}};
+document.addEventListener('rb-lang',e=>{lang=e.detail;applyI18n();renderChaps();pill('');});
 $('#helpChip').onclick=()=>$('#sheet').classList.toggle('on');
 /* goals */
 function goalKey(){return cur?'rb.goals.'+cur.id:'rb.goals';}
@@ -532,11 +538,12 @@ function xRun(q){const res=$('#xres');if(!q){res.innerHTML='<span class="muted">
 }
 /* meta panel (RB-26) */
 function fillMeta(m){if(!m)return;$('#mAuthor').value=m.author||'';$('#mLang').value=(m.language==='en')?'en':'uk';
+ $('#mIsbn').value=m.isbn||'';
  $('#mFormats').querySelectorAll('input').forEach(cb=>{cb.checked=(m.formats||[]).includes(cb.value);});}
 $('#mSave').onclick=async()=>{if(!cur)return;
  const formats=[...$('#mFormats').querySelectorAll('input:checked')].map(c=>c.value);
  try{const m=await j(`/api/drafts/${cur.id}/meta`,{method:'PUT',headers:{'content-type':'application/json'},
-   body:JSON.stringify({author:$('#mAuthor').value,language:$('#mLang').value,formats})});
+   body:JSON.stringify({author:$('#mAuthor').value,language:$('#mLang').value,formats,isbn:$('#mIsbn').value||null})});
   cur=m;const ct=$('#curTitle');if(ct)ct.textContent=m.title+' ('+m.language+')';
   const f=$('#mCover').files[0];
   if(f){const rd=new FileReader();rd.onload=async()=>{try{await j(`/api/drafts/${cur.id}/cover-img`,{method:'POST',
@@ -550,6 +557,13 @@ $('#mSave').onclick=async()=>{if(!cur)return;
 $('#mBuild').onclick=async()=>{if(!cur){return;}$('#mBuildOut').textContent='building…';
  try{const files=await j(`/api/drafts/${cur.id}/build`,{method:'POST'});
   $('#mBuildOut').textContent=files.length?'✓ '+files.join('\n'):'(empty)';}
+ catch(e){$('#mBuildOut').textContent='✗ '+e.message;}};
+$('#mTr').onclick=async()=>{if(!cur)return;
+ const to=cur.language==='uk'?'en':'uk';
+ $('#mBuildOut').textContent=T('mtrbusy');
+ try{const m=await j('/api/drafts/'+cur.id+'/translate/'+to,{method:'POST'});
+  await loadDrafts();$('#draftSel').value=m.id;await openDraft(m.id);
+  $('#mBuildOut').textContent=T('mtrok')+' → '+m.id+' ('+m.language+')';}
  catch(e){$('#mBuildOut').textContent='✗ '+e.message;}};
 $('#mDel').onclick=async()=>{if(!cur||!confirm('Видалити чернетку?'))return;
  await fetch('/api/drafts/'+cur.id,{method:'DELETE'});cur=null;chaps=[];

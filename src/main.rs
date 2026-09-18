@@ -164,6 +164,7 @@ fn build_epub(args: &[String]) -> Result<(), String> {
         output_path: proj.epub.to_string_lossy().into_owned(),
         cover_image: resolve_cover(args, &proj),
         language: book.language.clone(),
+        isbn: book.isbn.clone(),
     };
 
     rust_book::epub::generate_epub(&config, &book, &chapters)?;
@@ -212,9 +213,11 @@ fn check(args: &[String]) -> Result<String, String> {
     let proj = BookProject::resolve();
     let book = rust_book::load_book(&proj.json)?;
     let chapters = rust_book::load_chapters(&proj.base, &book)?;
-    let cover_entry = resolve_cover(args, &proj)
-        .as_deref()
-        .and_then(rust_book::epub::cover_storage_name);
+    let cover_entry = resolve_cover(args, &proj).and_then(|p| {
+        std::fs::read(&p)
+            .ok()
+            .and_then(|b| rust_book::epub::sniff_image_kind(&b).map(|k| format!("cover.{k}")))
+    });
     let listing = rust_book::epub::check_epub(
         &proj.epub.to_string_lossy(),
         &book.chapters,

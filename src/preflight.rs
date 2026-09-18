@@ -468,6 +468,7 @@ mod tests {
             year: 2026,
             format: String::new(),
             language: "uk".into(),
+            isbn: None,
             chapters: vec![ChapterMeta {
                 number: 1,
                 title: "x".into(),

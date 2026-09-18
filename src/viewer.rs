@@ -107,6 +107,15 @@ impl Epub {
             .unwrap_or("uk")
             .trim()
             .to_string();
+        let isbn = opf.find("urn:isbn:").and_then(|i| {
+            let rest = &opf[i + 9..];
+            let end = rest.find(['<', '"', ' ']).unwrap_or(rest.len());
+            let raw: String = rest[..end]
+                .chars()
+                .filter(|c| c.is_ascii_digit() || *c == 'X')
+                .collect();
+            (!raw.is_empty()).then_some(raw)
+        });
 
         // idref list from the spine, in order.
         let mut idrefs = Vec::new();
@@ -175,6 +184,7 @@ impl Epub {
             year: 0,
             format: "EPUB 3.2".to_string(),
             language,
+            isbn,
             chapters,
         })
     }
@@ -485,33 +495,137 @@ fn is_attr_char(b: u8) -> bool {
 }
 
 /// Render the page for a book index (`/`  or `/{id}/`).
+/// One top-nav zone: href + uk/en labels + GSV-style hover tips.
+pub struct NavItem {
+    /// Path this tab opens.
+    pub href: &'static str,
+    /// Ukrainian label.
+    pub uk: &'static str,
+    /// English label.
+    pub en: &'static str,
+    /// Hover tip (uk).
+    pub tip_uk: &'static str,
+    /// Hover tip (en).
+    pub tip_en: &'static str,
+}
+
 /// The five primary zones for the shared top navigation.
-pub const NAV_ITEMS: [(&str, &str); 5] = [
-    ("/", "Полиця"),
-    ("/studio", "Studio"),
-    ("/cover", "Обкладинки"),
-    ("/view3d", "🧊 3D"),
-    ("/products", "Продукти"),
+pub const NAV_ITEMS: [NavItem; 5] = [
+    NavItem {
+        href: "/",
+        uk: "Полиця",
+        en: "Shelf",
+        tip_uk: "Читалка EPUB і звіт KDP-перевірок",
+        tip_en: "EPUB reader and KDP checklist",
+    },
+    NavItem {
+        href: "/studio",
+        uk: "Studio",
+        en: "Studio",
+        tip_uk: "Чернетки: пиши своєю мовою, потім переклади",
+        tip_en: "Drafts: write in your language, then translate",
+    },
+    NavItem {
+        href: "/cover",
+        uk: "Обкладинки",
+        en: "Covers",
+        tip_uk: "Шаблони wrap: ebook / paperback / hardcover",
+        tip_en: "Wrap templates: ebook / paperback / hardcover",
+    },
+    NavItem {
+        href: "/view3d",
+        uk: "3D",
+        en: "3D",
+        tip_uk: "Віртуальний стенд книги (ebook + м'яка + тверда)",
+        tip_en: "Virtual book stand (ebook + paperback + hardcover)",
+    },
+    NavItem {
+        href: "/products",
+        uk: "Продукти",
+        en: "Products",
+        tip_uk: "Готові пакети для завантаження на KDP",
+        tip_en: "Finished packages for KDP upload",
+    },
 ];
+
+const NAV_STYLE: &str = "\
+.rb-nav{position:sticky;top:0;z-index:7;display:flex;gap:.9em;align-items:center;padding:.5em .9em;background:#161922;border-bottom:1px solid #2f3542;font:600 14px/1.4 system-ui,'Segoe UI',sans-serif;color:#9aa0ac}\
+.rb-nav .rb-brand{color:#7aa2f7;font-weight:800;letter-spacing:.04em;cursor:default}\
+.rb-nav a{color:#9aa0ac;text-decoration:none;padding:.2em .1em;border-bottom:2px solid transparent}\
+.rb-nav a:hover{color:#e6e6e6}\
+.rb-nav a.active{color:#7aa2f7;border-bottom-color:#7aa2f7}\
+.rb-nav .rb-home{margin-left:auto;font-weight:400;font-size:.85em}\
+.rb-nav .rb-lang{cursor:pointer;user-select:none;border:1px solid #2f3542;border-radius:999px;padding:.12em .7em;font-size:.85em}\
+.rb-nav .rb-lang:hover{border-color:#7aa2f7;color:#e6e6e6}\
+#rbTip{position:fixed;z-index:2000;max-width:280px;padding:6px 8px;border-radius:6px;border:1px solid #2f3542;background:#1a2233;color:#e6e6e6;font:12px/1.35 system-ui,'Segoe UI',sans-serif;display:none;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,.45)}";
+
+const NAV_JS: &str = r#"(function(){
+var lang=localStorage.getItem('rb.lang')||'uk';
+function apply(){
+ document.documentElement.lang=lang;
+ document.querySelectorAll('[data-uk][data-en]').forEach(function(el){
+  var v=lang==='en'?el.getAttribute('data-en'):el.getAttribute('data-uk');
+  if(v!==null)el.textContent=v;
+  var t=lang==='en'?el.getAttribute('data-tip-en'):el.getAttribute('data-tip-uk');
+  if(t){el.setAttribute('data-tip',t);el.setAttribute('title',t);}
+ });
+ var chip=document.getElementById('rbLangChip');
+ if(chip)chip.textContent=lang==='uk'?'EN':'УК';
+}
+window.rbSetLang=function(l){lang=l;localStorage.setItem('rb.lang',l);apply();document.dispatchEvent(new CustomEvent('rb-lang',{detail:l}));};
+apply();
+var chip=document.getElementById('rbLangChip');
+if(chip)chip.onclick=function(){window.rbSetLang(lang==='uk'?'en':'uk');};
+var tip=document.getElementById('rbTip');
+if(tip){
+ var place=function(e){tip.style.left=Math.min(e.clientX+12,innerWidth-292)+'px';tip.style.top=Math.min(e.clientY+16,innerHeight-72)+'px';};
+ document.addEventListener('pointerover',function(e){
+  var el=e.target.closest&&e.target.closest('[data-tip],[title]');
+  if(!el){tip.style.display='none';return;}
+  var t=el.getAttribute('data-tip');
+  if(!t&&el.hasAttribute('title')){t=el.getAttribute('title');el.setAttribute('data-tip',t);el.removeAttribute('title');}
+  if(!t){tip.style.display='none';return;}
+  tip.textContent=t;tip.style.display='block';place(e);
+ });
+ document.addEventListener('pointermove',function(e){if(tip.style.display==='block')place(e);});
+ document.addEventListener('pointerout',function(e){if(!e.relatedTarget||!e.relatedTarget.closest('[data-tip]'))tip.style.display='none';});
+}
+})();"#;
 
 /// A compact, self-contained top nav bar. `active` is the current path so
 /// its link is highlighted. Uses only class hooks styled by `viewer_css`.
 pub fn nav_html(active: &str) -> String {
     let links: Vec<String> = NAV_ITEMS
         .iter()
-        .map(|(href, label)| {
-            let cls = if *href == active {
+        .map(|it| {
+            let cls = if it.href == active {
                 " class=\"active\""
             } else {
                 ""
             };
-            format!("<a{cls} href=\"{href}\">{label}</a>")
+            format!(
+                "<a{cls} href=\"{href}\" data-uk=\"{uk}\" data-en=\"{en}\" data-tip=\"{tu}\" data-tip-uk=\"{tu}\" data-tip-en=\"{te}\">{uk}</a>",
+                href = it.href,
+                uk = it.uk,
+                en = it.en,
+                tu = it.tip_uk,
+                te = it.tip_en,
+            )
         })
         .collect();
     format!(
-        "<style>.rb-nav{{position:sticky;top:0;z-index:7;display:flex;gap:.9em;align-items:center;padding:.5em .9em;background:#161922;border-bottom:1px solid #2f3542;font:600 14px/1.4 system-ui,'Segoe UI',sans-serif;color:#9aa0ac}}.rb-nav .rb-brand{{color:#7aa2f7;font-weight:800;letter-spacing:.04em}}.rb-nav a{{color:#9aa0ac;text-decoration:none;padding:.2em .1em;border-bottom:2px solid transparent}}.rb-nav a:hover{{color:#e6e6e6}}.rb-nav a.active{{color:#7aa2f7;border-bottom-color:#7aa2f7}}.rb-nav .rb-home{{margin-left:auto;font-weight:400;font-size:.85em}}</style>\
-         <nav class=\"rb-nav\"><span class=\"rb-brand\">rebook</span>{}<a class=\"rb-home\" href=\"/books\">усі книги →</a></nav>",
-        links.join("")
+        "<style>{style}</style>\
+         <nav class=\"rb-nav\" aria-label=\"rebook\">\
+         <span class=\"rb-brand\" data-uk=\"rebook\" data-en=\"rebook\" data-tip=\"rebook — EPUB 3.2 + KDP studio\" data-tip-uk=\"rebook — EPUB 3.2 + KDP studio\" data-tip-en=\"rebook — EPUB 3.2 + KDP studio\">rebook</span>\
+         {links}\
+         <span class=\"rb-lang\" id=\"rbLangChip\" data-tip=\"Мова інтерфейсу: українська / English\" data-tip-uk=\"Мова інтерфейсу: українська / English\" data-tip-en=\"Interface language: Ukrainian / English\">EN</span>\
+         <a class=\"rb-home\" href=\"/books\" data-uk=\"усі книги →\" data-en=\"all books →\" data-tip=\"Повна полиця EPUB\" data-tip-uk=\"Повна полиця EPUB\" data-tip-en=\"Full EPUB shelf\">усі книги →</a>\
+         </nav>\
+         <div id=\"rbTip\" role=\"tooltip\"></div>\
+         <script>{js}</script>",
+        style = NAV_STYLE,
+        links = links.join(""),
+        js = NAV_JS,
     )
 }
 
@@ -1099,6 +1213,7 @@ mod tests {
             year: 2026,
             format: "EPUB 3.2".to_string(),
             language: "uk".to_string(),
+            isbn: None,
             chapters: vec![ChapterMeta {
                 number: 1,
                 title: "Перша".to_string(),
@@ -1289,6 +1404,18 @@ mod tests {
     fn extract_body_returns_inner_content() {
         let body = extract_body("<html><body><h1>Хай</h1><p>текст</p></body></html>").unwrap();
         assert_eq!(body, "<h1>Хай</h1><p>текст</p>");
+    }
+
+    #[test]
+    fn nav_html_has_gsv_tips_and_i18n_attrs() {
+        let n = nav_html("/studio");
+        assert!(n.contains("data-tip="));
+        assert!(n.contains("data-uk=\"Studio\""));
+        assert!(n.contains("data-en=\"Shelf\""));
+        assert!(n.contains("id=\"rbLangChip\""));
+        assert!(n.contains("id=\"rbTip\""));
+        assert!(n.contains("class=\"active\""));
+        assert!(n.contains("href=\"/studio\""));
     }
 
     #[test]

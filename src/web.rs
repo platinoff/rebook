@@ -113,6 +113,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/drafts/{id}/build", post(api_draft_build))
         .route("/api/drafts/{id}/promote", post(api_draft_promote))
         .route(
+            "/api/drafts/{id}/translate/{lang}",
+            post(api_draft_translate),
+        )
+        .route(
             "/api/drafts/{id}/cover",
             get(api_draft_get_cover).put(api_draft_put_cover),
         )
@@ -467,6 +471,20 @@ async fn api_draft_promote(
     }
 }
 
+async fn api_draft_translate(
+    State(st): State<Arc<AppState>>,
+    AxPath((id, lang)): AxPath<(String, String)>,
+) -> Response {
+    match crate::drafts::fork_translation(&st.drafts_root, &id, &lang) {
+        Ok(meta) => text_response(
+            StatusCode::OK,
+            "application/json; charset=utf-8",
+            meta.to_json(),
+        ),
+        Err(e) => draft_err(e),
+    }
+}
+
 async fn api_draft_delete(
     State(st): State<Arc<AppState>>,
     AxPath((id,)): AxPath<(String,)>,
@@ -776,6 +794,7 @@ mod tests {
             year: 2026,
             format: "EPUB 3.2".to_string(),
             language: "uk".to_string(),
+            isbn: None,
             chapters: vec![ChapterMeta {
                 number: 1,
                 title: "Y".to_string(),
@@ -901,6 +920,7 @@ mod tests {
             year: 2026,
             format: "EPUB 3.2".to_string(),
             language: "uk".to_string(),
+            isbn: None,
             chapters: vec![ChapterMeta {
                 number: 1,
                 title: "One".to_string(),
@@ -918,6 +938,7 @@ mod tests {
             output_path: root.join("late.epub").to_string_lossy().into_owned(),
             cover_image: None,
             language: "uk".to_string(),
+            isbn: None,
         };
         crate::epub::generate_epub(&cfg, &book, &chapters).unwrap();
         let (s, body) = get(router(st.clone()), "/api/books").await;
@@ -943,6 +964,7 @@ mod tests {
             year: 2026,
             format: "EPUB 3.2".to_string(),
             language: "uk".to_string(),
+            isbn: None,
             chapters: vec![ChapterMeta {
                 number: 1,
                 title: "One".to_string(),
@@ -961,6 +983,7 @@ mod tests {
                 output_path: dir.join(name).to_string_lossy().into_owned(),
                 cover_image: None,
                 language: "uk".to_string(),
+                isbn: None,
             };
             crate::epub::generate_epub(&cfg, &book, &ch).unwrap();
         }
@@ -987,6 +1010,7 @@ mod tests {
                     year: 2026,
                     format: "EPUB 3.2".into(),
                     language: "uk".into(),
+                    isbn: None,
                     chapters: vec![],
                 },
                 epub,
@@ -1017,6 +1041,7 @@ mod tests {
             year: 2026,
             format: "EPUB 3.2".to_string(),
             language: "uk".to_string(),
+            isbn: None,
             chapters: vec![ChapterMeta {
                 number: 1,
                 title: "One".to_string(),

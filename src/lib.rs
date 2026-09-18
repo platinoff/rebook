@@ -43,6 +43,10 @@ pub struct Book {
     pub format: String,
     #[serde(default = "default_language")]
     pub language: String,
+    /// Optional ISBN-13 (ISBN-10 accepted and converted). Lands in the OPF
+    /// as `urn:isbn:` so KDP preflight and Kindle title metadata agree.
+    #[serde(default)]
+    pub isbn: Option<String>,
     pub chapters: Vec<ChapterMeta>,
 }
 

@@ -25,6 +25,8 @@ pub struct EpubConfig {
     pub cover_image: Option<String>,
     /// RFC 5646 language tag (e.g., "uk", "en")
     pub language: String,
+    /// Optional ISBN-13 (ISBN-10 accepted). Written as `urn:isbn:` in the OPF.
+    pub isbn: Option<String>,
 }
 
 const STYLES_CSS: &str = r#"body {
@@ -108,7 +110,12 @@ pub fn generate_epub(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> 
     write_text_entry(
         &mut writer,
         "OEBPS/content.opf",
-        &content_opf(config, book, chapters),
+        &content_opf(
+            config,
+            book,
+            chapters,
+            cover.as_ref().map(|(n, _)| n.as_str()),
+        ),
     )?;
     write_text_entry(&mut writer, "OEBPS/nav.xhtml", &nav_xhtml(book, has_cover))?;
     write_text_entry(&mut writer, "OEBPS/styles.css", STYLES_CSS)?;
@@ -188,7 +195,54 @@ fn cover_media_type(ext: &str) -> &'static str {
     }
 }
 
+/// First existing cover file next to `dir` (or in `dir/assets/`).
+/// Used by CLI, drafts, and shelf so a `.jpg`/`.webp` is not ignored.
+pub fn find_cover_file(dir: &Path) -> Option<String> {
+    const NAMES: &[&str] = &[
+        "cover.png",
+        "cover.jpg",
+        "cover.jpeg",
+        "cover.webp",
+        "cover.gif",
+        "cover.svg",
+        "cover_kdp.jpg",
+    ];
+    for n in NAMES {
+        for cand in [dir.join(n), dir.join("assets").join(n)] {
+            if cand.is_file() {
+                return Some(cand.to_string_lossy().into_owned());
+            }
+        }
+    }
+    None
+}
+
+/// RB-40: the *real* image kind from magic bytes (`png`/`jpg`/`gif`/`webp`),
+/// `svg` for XML/SVG text, `None` for anything else. Extension lies; bytes don't.
+pub fn sniff_image_kind(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return Some("png");
+    }
+    if bytes.starts_with(&[0xFF, 0xD8]) {
+        return Some("jpg");
+    }
+    if bytes.starts_with(b"GIF8") {
+        return Some("gif");
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("webp");
+    }
+    let head = std::str::from_utf8(&bytes[..bytes.len().min(512)]).unwrap_or("");
+    let t = head.trim_start();
+    if t.starts_with("<?xml") || t.starts_with("<svg") {
+        return Some("svg");
+    }
+    None
+}
+
 /// Read the configured cover image from disk; `Ok(None)` when no cover is set.
+/// RB-40: the entry name/media-type come from the sniffed magic bytes, so a
+/// PNG renamed `.jpg` lands as `cover.png` (what readers and KDP actually see).
 fn load_cover(config: &EpubConfig) -> Result<Option<(String, Vec<u8>)>, String> {
     let img = match config
         .cover_image
@@ -198,7 +252,7 @@ fn load_cover(config: &EpubConfig) -> Result<Option<(String, Vec<u8>)>, String> 
         Some(img) => img,
         None => return Ok(None),
     };
-    let name = cover_storage_name(img).ok_or_else(|| {
+    cover_storage_name(img).ok_or_else(|| {
         format!(
             "Unsupported cover image type: {} (use png/jpg/webp/gif/svg)",
             img
@@ -206,12 +260,18 @@ fn load_cover(config: &EpubConfig) -> Result<Option<(String, Vec<u8>)>, String> 
     })?;
     let bytes =
         std::fs::read(img).map_err(|e| format!("Cannot read cover image {}: {}", img, e))?;
-    let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or("png");
+    let kind = sniff_image_kind(&bytes).ok_or_else(|| {
+        format!(
+            "cover image {} is not a PNG/JPEG/GIF/WebP/SVG by content",
+            img
+        )
+    })?;
+    let name = format!("cover.{kind}");
     println!(
         "Cover: {} -> OEBPS/{} ({})",
         img,
         name,
-        cover_media_type(ext)
+        cover_media_type(kind)
     );
     Ok(Some((name, bytes)))
 }
@@ -251,8 +311,15 @@ fn container_xml() -> String {
         .to_string()
 }
 
-/// OPF package with metadata, manifest and spine.
-fn content_opf(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> String {
+/// OPF package with metadata, manifest and spine. `cover_entry` is the
+/// resolved in-zip cover name from [`load_cover`] (RB-40: sniffed, not the
+/// declared extension) — `None` when the book has no cover.
+fn content_opf(
+    config: &EpubConfig,
+    book: &Book,
+    chapters: &[Chapter],
+    cover_entry: Option<&str>,
+) -> String {
     let mut manifest = String::new();
     let mut spine = String::new();
     let mut cover_meta = String::new();
@@ -260,12 +327,7 @@ fn content_opf(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> String
     let mut cover_spine = String::new();
     let modified = format!("{:04}-{:02}-{:02}T00:00:00Z", book.year, 1, 1);
 
-    if let Some(img) = config
-        .cover_image
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        && let Some(name) = cover_storage_name(img)
-    {
+    if let Some(name) = cover_entry.filter(|s| !s.trim().is_empty()) {
         let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or("png");
         cover_meta.push_str("    <meta name=\"cover\" content=\"cover-image\"/>\n");
         cover_manifest.push_str(
@@ -295,6 +357,7 @@ fn content_opf(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> String
     }
 
     let uuid = book_uuid(&book.title, &book.author, &config.language);
+    let isbn_xml = isbn_opf_xml(config.isbn.as_deref().or(book.isbn.as_deref()));
 
     format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
@@ -302,6 +365,7 @@ fn content_opf(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> String
          \x20 <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n\
          {cover_meta}\
          \x20\x20 <dc:identifier id=\"book-id\">{uuid}</dc:identifier>\n\
+         {isbn_xml}\
          \x20\x20 <dc:title>{title}</dc:title>\n\
          \x20\x20 <dc:creator>{author}</dc:creator>\n\
          \x20\x20 <dc:language>{lang}</dc:language>\n\
@@ -315,6 +379,7 @@ fn content_opf(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> String
          </package>\n",
         lang = esc(&config.language),
         uuid = uuid,
+        isbn_xml = isbn_xml,
         title = esc(&config.title),
         author = esc(&config.author),
         year = book.year,
@@ -324,6 +389,20 @@ fn content_opf(config: &EpubConfig, book: &Book, chapters: &[Chapter]) -> String
         cover_spine = cover_spine,
         manifest = manifest,
         spine = spine,
+    )
+}
+
+/// Extra OPF identifier for KDP (`urn:isbn:` + ONIX list 15 = ISBN-13).
+fn isbn_opf_xml(raw: Option<&str>) -> String {
+    let Some(raw) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return String::new();
+    };
+    let Ok(ean) = crate::standards::isbn_to_ean13(raw) else {
+        return String::new();
+    };
+    format!(
+        "    <dc:identifier id=\"pub-id\">urn:isbn:{ean}</dc:identifier>\n\
+         \x20\x20 <meta refines=\"#pub-id\" property=\"identifier-type\" scheme=\"onix:codelist5\">15</meta>\n"
     )
 }
 
@@ -766,6 +845,7 @@ mod tests {
             year: 2026,
             format: "EPUB 3.2".to_string(),
             language: "uk".to_string(),
+            isbn: None,
             chapters: vec![
                 ChapterMeta {
                     number: 1,
@@ -853,8 +933,9 @@ mod tests {
             output_path: "build/test.epub".to_string(),
             cover_image: None,
             language: "uk".to_string(),
+            isbn: None,
         };
-        let o = content_opf(&cfg, &sample_book(), &sample_chapters());
+        let o = content_opf(&cfg, &sample_book(), &sample_chapters(), None);
         assert!(o.contains("<dc:title>Test Book</dc:title>"));
         assert!(o.contains("<dc:language>uk</dc:language>"));
         assert!(o.contains("styles.css"));
@@ -890,14 +971,84 @@ mod tests {
             output_path: "build/test.epub".to_string(),
             cover_image: Some("assets/cover.PNG".to_string()),
             language: "uk".to_string(),
+            isbn: None,
         };
-        let o = content_opf(&cfg, &sample_book(), &sample_chapters());
+        let o = content_opf(&cfg, &sample_book(), &sample_chapters(), Some("cover.png"));
         assert!(o.contains("<meta name=\"cover\" content=\"cover-image\"/>"));
         assert!(
             o.contains("href=\"cover.png\" media-type=\"image/png\" properties=\"cover-image\"")
         );
         assert!(o.contains("href=\"cover.xhtml\" media-type=\"application/xhtml+xml\""));
         assert!(o.contains("<itemref idref=\"cover-page\"/>"));
+    }
+
+    #[test]
+    fn opf_emits_urn_isbn_when_configured() {
+        let cfg = EpubConfig {
+            title: "Test Book".to_string(),
+            author: "Author".to_string(),
+            output_path: "build/test.epub".to_string(),
+            cover_image: None,
+            language: "uk".to_string(),
+            isbn: Some("978-3-16-148410-0".to_string()),
+        };
+        let o = content_opf(&cfg, &sample_book(), &sample_chapters(), None);
+        assert!(o.contains("<dc:identifier id=\"pub-id\">urn:isbn:9783161484100</dc:identifier>"));
+        assert!(o.contains("property=\"identifier-type\""));
+        assert!(o.contains("onix:codelist5"));
+    }
+
+    #[test]
+    fn sniff_image_kind_reads_magic_not_extension() {
+        assert_eq!(
+            sniff_image_kind(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0]),
+            Some("png")
+        );
+        assert_eq!(sniff_image_kind(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("jpg"));
+        assert_eq!(sniff_image_kind(b"GIF89a...."), Some("gif"));
+        assert_eq!(sniff_image_kind(b"RIFF....WEBPVP8 "), Some("webp"));
+        assert_eq!(
+            sniff_image_kind(b"<?xml version=\"1.0\"?><svg/>"),
+            Some("svg")
+        );
+        assert_eq!(sniff_image_kind(b"<svg xmlns="), Some("svg"));
+        assert_eq!(sniff_image_kind(b"bmP not an image"), None);
+    }
+
+    #[test]
+    fn build_with_cover_lands_sniffed_entry_and_preflight_finds_it() {
+        // RB-40 e2e: a PNG mislabeled .jpg must ship as OEBPS/cover.png and
+        // satisfy preflight's cover:found exactly as a real cover would.
+        let png: Vec<u8> = vec![
+            0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, b'I', b'H',
+            b'D', b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x87, 0x00, 0x00, 0x00, b'I', b'D', b'A', b'T', 0x78, 0x9C,
+            0x62, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xE2, 0x21, 0x8B, 0xC3, 0x00, 0x00, 0x00,
+            0x00, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("e2e-cover");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let img = dir.join("cover-lie.jpg");
+        std::fs::write(&img, &png).unwrap();
+        let out = dir.join("book.epub");
+        let cfg = EpubConfig {
+            title: "Covered".to_string(),
+            author: "A".to_string(),
+            output_path: out.to_string_lossy().into_owned(),
+            cover_image: Some(img.to_string_lossy().into_owned()),
+            language: "uk".to_string(),
+            isbn: None,
+        };
+        generate_epub(&cfg, &sample_book(), &sample_chapters()).unwrap();
+        let epub = crate::viewer::Epub::from_path(&out.to_string_lossy()).unwrap();
+        assert!(epub.get("OEBPS/cover.png").is_some(), "sniffed name wins");
+        assert!(epub.get("OEBPS/cover.jpg").is_none());
+        let cov = crate::preflight::cover_from_epub(&epub).expect("preflight cover:found");
+        assert_eq!(cov.file, "OEBPS/cover.png");
+        assert_eq!((cov.w_px, cov.h_px), (1, 1));
     }
 
     #[test]

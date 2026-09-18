@@ -191,3 +191,20 @@ debounce).
 
 Shortcut canon: Ctrl+B/I/E/K, Alt+1..3, Ctrl+S ritual, Ctrl+P quick-open,
 Ctrl+1/2 rails, arrows nudge (canvas), Ctrl+0 zoom, `?` cheatsheet.
+
+## 7. Wave 5 — KDP editions + GSV chrome (2026-09-18)
+
+Concept: [`CONCEPT.md`](./CONCEPT.md) · GPU: [`VULKAN_RESEARCH.md`](./VULKAN_RESEARCH.md)
+· queue: [`ROADMAP.md`](./ROADMAP.md).
+
+| RB | Scope | Status |
+|----|-------|--------|
+| 40 | Cover magic-byte sniff (extension lies) | ✅ |
+| 41 | OPF `urn:isbn:` + kdp.rs no AZW3 | ✅ |
+| 42 | Nav `data-tip` / uk⇄en like GSV Galaxy | ✅ |
+| 43 | Write-then-translate fork (`/translate/{lang}`) | ✅ |
+| 44+ | page-view numbering, hyphenation, ICC, ebook flip | queued |
+
+Three KDP types stay **ebook / paperback / hardcover**; virtual stand is
+`/view3d` (CSS 3D, not Vulkan). Author writes in source language, then forks
+the edition. Tickets + commit: owner says **`agi`**. **RB-40…43 landed** this drain.

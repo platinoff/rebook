@@ -1,18 +1,19 @@
-/// Module for Kindle Direct Publishing (KDP) publishing
-///
-/// Provides KDP publishing functionality for book distribution.
-use std::path::Path;
+//! Kindle Direct Publishing helpers.
+//!
+//! Amazon KDP accepts a **valid EPUB 3.2** and converts it server-side to
+//! Kindle formats. There is no local AZW3 / KFX / MOBI step in rebook.
 
-/// KDP publishing configuration
+/// KDP upload configuration (EPUB path + identity). The `azw3_path` field
+/// is retained so older callers still compile; it is ignored.
 #[derive(Debug, Clone)]
 pub struct KdpConfig {
-    /// Path to the AZW3/KFX file
+    /// Ignored. Kept for API compatibility with the old AZW3 path.
     pub azw3_path: String,
     /// Book title
     pub title: String,
     /// Author name
     pub author: String,
-    /// ISBN (optional)
+    /// ISBN (optional; printed editions need one per format)
     pub isbn: Option<String>,
     /// whether to embed source for Kindle Previewer
     pub embed_source: bool,
@@ -20,46 +21,38 @@ pub struct KdpConfig {
     pub legacy_mobi: bool,
 }
 
-/// Build for KDP standard (AZW3/KFX)
-pub fn build_kdp_standard(config: &KdpConfig) -> Result<(), String> {
-    println!("Building KDP standard AZW3/KFX...");
-    println!("Title: {}", config.title);
-    println!("Author: {}", config.author);
-    println!("File: {}", config.azw3_path);
-
-    let azw3_path = Path::new(&config.azw3_path);
-    if !azw3_path.exists() {
-        return Err(format!("AZW3 file not found: {}", config.azw3_path));
-    }
-
-    println!("✓ KDP build validated: {}", config.azw3_path);
-    Ok(())
+/// Direct-upload reminder. Never writes an AZW3.
+pub fn build_kdp_standard(_config: &KdpConfig) -> Result<(), String> {
+    Err(KDP_UPLOAD_HINT.to_string())
 }
 
-/// Convert EPUB to AZW3/KFX using boko CLI
-pub fn convert_epub_to_azw3(epub_path: &str, azw3_path: &str) -> Result<(), String> {
-    println!("Converting EPUB to AZW3/KFX...");
-    println!("EPUB: {}", epub_path);
-    println!("AZW3 output: {}", azw3_path);
+/// Direct-upload reminder. Never shells out to a converter.
+pub fn convert_epub_to_azw3(epub_path: &str, _azw3_path: &str) -> Result<(), String> {
+    if !std::path::Path::new(epub_path).exists() {
+        return Err(format!("EPUB file not found: {epub_path}"));
+    }
+    Err(KDP_UPLOAD_HINT.to_string())
+}
 
-    // Use boko CLI to convert
-    let result = std::process::Command::new("boko")
-        .args(["convert", epub_path, azw3_path])
-        .output();
+const KDP_UPLOAD_HINT: &str = "KDP accepts a valid EPUB 3.2 directly and converts it \
+     server-side. Upload the EPUB (build/*.epub) — there is no local AZW3/KFX step.";
 
-    match result {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-            if output.status.success() {
-                println!("✓ Conversion successful");
-                println!("{}", stdout);
-                Ok(())
-            } else {
-                Err(format!("Conversion failed: {}", stderr))
-            }
-        }
-        Err(e) => Err(format!("Failed to run boko: {}", e)),
+    #[test]
+    fn kdp_helpers_refuse_local_azw3() {
+        let cfg = KdpConfig {
+            azw3_path: "nope.azw3".into(),
+            title: "T".into(),
+            author: "A".into(),
+            isbn: None,
+            embed_source: false,
+            legacy_mobi: false,
+        };
+        let e = build_kdp_standard(&cfg).unwrap_err();
+        assert!(e.contains("EPUB 3.2"));
+        assert!(!e.to_lowercase().contains("boko"));
     }
 }

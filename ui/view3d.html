@@ -38,18 +38,18 @@
 <div class="wrap">
  <div>
   <div class="bar">
-   <label>📚 Книга (EPUB із полиці)<select id="bookSel" style="min-width:15em"><option>—</option></select></label>
-    <label>Формат<select id="fmt"><option value="hc">Hardcover (case)</option><option value="dj">Dust jacket (Ingram)</option><option value="pb">Paperback</option><option value="ebook">eBook front</option></select></label>
-   <label>Trim<select id="trim"></select></label>
-   <label>Сторінки<input id="pages" type="number" value="300" min="24" max="828" step="2" style="width:7em"/></label>
-   <label style="gap:0"><input id="guides" type="checkbox" checked style="width:auto"/> накладки KDP</label>
-   <button class="btn" id="go">🖼 Показати на стенді</button>
-   <button class="btn ghost" id="reset">скинути кут</button>
+   <label><span data-uk="📚 Книга (EPUB із полиці)" data-en="📚 Book (shelf EPUB)">📚 Книга (EPUB із полиці)</span><select id="bookSel" style="min-width:15em"><option>—</option></select></label>
+    <label><span data-uk="Формат" data-en="Format">Формат</span><select id="fmt"><option value="hc" data-uk="Hardcover (case)" data-en="Hardcover (case)">Hardcover (case)</option><option value="dj" data-uk="Dust jacket (Ingram)" data-en="Dust jacket (Ingram)">Dust jacket (Ingram)</option><option value="pb" data-uk="Paperback" data-en="Paperback">Paperback</option><option value="ebook" data-uk="eBook front" data-en="eBook front">eBook front</option></select></label>
+   <label><span data-uk="Trim" data-en="Trim">Trim</span><select id="trim"></select></label>
+   <label><span data-uk="Сторінки" data-en="Pages">Сторінки</span><input id="pages" type="number" value="300" min="24" max="828" step="2" style="width:7em"/></label>
+   <label style="gap:0"><input id="guides" type="checkbox" checked style="width:auto"/> <span data-uk="накладки KDP" data-en="KDP overlays">накладки KDP</span></label>
+   <button class="btn" id="go" data-uk="🖼 Показати на стенді" data-en="🖼 Show on stand">🖼 Показати на стенді</button>
+   <button class="btn ghost" id="reset" data-uk="скинути кут" data-en="reset angle">скинути кут</button>
    <span id="readout"></span>
   </div>
   <div id="stage"><div id="book3d"></div><p id="hint">тягни / палець — обертати · колесо / pinch — зум · Tab на сцену: ←→↑↓ кут, PgUp/PgDn зум, 0 — скинути · галочка «накладки» вмикає bleed/safe/fold-гади</p></div>
  </div>
- <aside id="warns"><h3>⚠ Preflight</h3><div class="w"><span class="muted">обери книгу — звіт KDP-перевірок з'явиться тут</span></div></aside>
+ <aside id="warns"><h3 data-uk="⚠ Preflight" data-en="⚠ Preflight">⚠ Preflight</h3><div class="w"><span class="muted" data-uk="обери книгу — звіт KDP-перевірок з'явиться тут" data-en="pick a book — the KDP report appears here">обери книгу — звіт KDP-перевірок з'явиться тут</span></div></aside>
 </div>
 <script>
 const $=s=>document.querySelector(s);

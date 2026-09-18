@@ -44,6 +44,12 @@ pub struct DraftMeta {
     /// ISBN for the print barcode (RB-26 meta).
     #[serde(default)]
     pub isbn: Option<String>,
+    /// Language the author writes first (uk by default). `language` is this edition.
+    #[serde(default)]
+    pub source_language: Option<String>,
+    /// Draft id this edition was forked from (write-then-translate).
+    #[serde(default)]
+    pub translation_of: Option<String>,
     /// Unix seconds of the last save.
     #[serde(default)]
     pub updated: u64,
@@ -126,6 +132,8 @@ pub fn create(root: &Path, title: &str, author: &str, language: &str) -> Result<
         trim: None,
         pages: None,
         isbn: None,
+        source_language: None,
+        translation_of: None,
         updated: now(),
     };
     std::fs::write(meta_path(root, &meta.id), meta.to_json())
@@ -418,6 +426,7 @@ pub fn build_products(root: &Path, id: &str) -> Result<Vec<String>, String> {
         year: (now() / 31_557_600) as u32 + 1,
         format: "EPUB 3.2".to_string(),
         language: meta.language.clone(),
+        isbn: meta.isbn.clone(),
         chapters: meta.chapters.clone(),
     };
     let chapters = crate::load_chapters(&dir, &book)?;
@@ -467,6 +476,7 @@ pub fn promote(root: &Path, id: &str) -> Result<PathBuf, String> {
         year: (now() / 31_557_600) as u32 + 1,
         format: "EPUB 3.2".to_string(),
         language: meta.language.clone(),
+        isbn: meta.isbn.clone(),
         chapters: meta.chapters.clone(),
     };
     let chapters = crate::load_chapters(&dir, &book)?;
@@ -477,15 +487,60 @@ pub fn promote(root: &Path, id: &str) -> Result<PathBuf, String> {
         title: book.title.clone(),
         author: book.author.clone(),
         output_path: out.to_string_lossy().into_owned(),
-        cover_image: crate::epub::cover_storage_name(
-            &dir.join("assets/cover.png").to_string_lossy(),
-        )
-        .map(|_| dir.join("assets/cover.png").to_string_lossy().into_owned())
-        .filter(|p| Path::new(p).exists()),
+        cover_image: crate::epub::find_cover_file(&dir),
         language: book.language.clone(),
+        isbn: book.isbn.clone(),
     };
     generate_epub(&config, &book, &chapters)?;
     Ok(out)
+}
+
+/// Fork a draft into another language edition (write-then-translate).
+/// Copies chapter markdown as-is; the author translates in Studio.
+/// Print ISBN is per-edition, so it is cleared.
+pub fn fork_translation(root: &Path, id: &str, target_lang: &str) -> Result<DraftMeta, String> {
+    if !matches!(target_lang, "uk" | "en") {
+        return Err("translation target must be uk or en".to_string());
+    }
+    let src = load(root, id)?;
+    if src.language == target_lang {
+        return Err(format!("draft {id} is already {target_lang}"));
+    }
+    let new_id = format!("{id}-{target_lang}");
+    safe_id(&new_id)?;
+    let dest = draft_dir(root, &new_id);
+    if dest.exists() {
+        return Err(format!("draft {new_id} already exists"));
+    }
+    let src_dir = draft_dir(root, &src.id);
+    copy_dir(&src_dir, &dest)?;
+    let mut meta = src;
+    meta.id = new_id.clone();
+    meta.source_language = Some(meta.language.clone());
+    meta.translation_of = Some(id.to_string());
+    meta.language = target_lang.to_string();
+    meta.isbn = None;
+    meta.title = format!("{} [{}]", meta.title, target_lang);
+    meta.updated = now();
+    std::fs::write(meta_path(root, &meta.id), meta.to_json())
+        .map_err(|e| format!("write translated draft.json: {e}"))?;
+    Ok(meta)
+}
+
+fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| format!("mkdir {to:?}: {e}"))?;
+    let entries = std::fs::read_dir(from).map_err(|e| format!("read {from:?}: {e}"))?;
+    for ent in entries.flatten() {
+        let src = ent.path();
+        let name = ent.file_name();
+        let dst = to.join(&name);
+        if src.is_dir() {
+            copy_dir(&src, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst).map_err(|e| format!("copy {name:?}: {e}"))?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -566,5 +621,30 @@ mod tests {
         let r = test_root("empty");
         let m = create(&r, "No Chapters", "a", "uk").unwrap();
         assert!(promote(&r, &m.id).is_err());
+    }
+
+    #[test]
+    fn fork_translation_copies_chapters_and_clears_isbn() {
+        let r = test_root("translate");
+        let m = create(&r, "Night Book", "A", "uk").unwrap();
+        save_chapter(&r, &m.id, 1, "Один", "текст рідною", "md").unwrap();
+        save_meta(
+            &r,
+            &m.id,
+            &MetaPatch {
+                isbn: Some("978-3-16-148410-0"),
+                ..MetaPatch::default()
+            },
+        )
+        .unwrap();
+        let t = fork_translation(&r, &m.id, "en").unwrap();
+        assert_eq!(t.id, "night-book-en");
+        assert_eq!(t.language, "en");
+        assert_eq!(t.source_language.as_deref(), Some("uk"));
+        assert_eq!(t.translation_of.as_deref(), Some("night-book"));
+        assert!(t.isbn.is_none(), "print ISBN is per-edition");
+        assert_eq!(chapter_content(&r, &t.id, 1).unwrap(), "текст рідною");
+        assert!(fork_translation(&r, &m.id, "uk").is_err());
+        assert!(fork_translation(&r, &m.id, "en").is_err());
     }
 }

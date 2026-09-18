@@ -372,6 +372,7 @@ mod tests {
             year: 2026,
             format: "EPUB 3.2".to_string(),
             language: "uk".to_string(),
+            isbn: None,
             chapters: vec![ChapterMeta {
                 number: 1,
                 title: "Глава".to_string(),
