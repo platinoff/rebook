@@ -564,6 +564,7 @@ var lang=localStorage.getItem('rb.lang')||'uk';
 function apply(){
  document.documentElement.lang=lang;
  document.querySelectorAll('[data-uk][data-en]').forEach(function(el){
+  if(el.querySelector&&el.querySelector('input,select,textarea'))return;
   var v=lang==='en'?el.getAttribute('data-en'):el.getAttribute('data-uk');
   if(v!==null)el.textContent=v;
   var t=lang==='en'?el.getAttribute('data-tip-en'):el.getAttribute('data-tip-uk');
@@ -574,6 +575,7 @@ function apply(){
 }
 window.rbSetLang=function(l){lang=l;localStorage.setItem('rb.lang',l);apply();document.dispatchEvent(new CustomEvent('rb-lang',{detail:l}));};
 apply();
+document.addEventListener('DOMContentLoaded',apply);
 var chip=document.getElementById('rbLangChip');
 if(chip)chip.onclick=function(){window.rbSetLang(lang==='uk'?'en':'uk');};
 var tip=document.getElementById('rbTip');
@@ -1414,6 +1416,7 @@ mod tests {
         assert!(n.contains("data-en=\"Shelf\""));
         assert!(n.contains("id=\"rbLangChip\""));
         assert!(n.contains("id=\"rbTip\""));
+        assert!(n.contains("DOMContentLoaded"));
         assert!(n.contains("class=\"active\""));
         assert!(n.contains("href=\"/studio\""));
     }

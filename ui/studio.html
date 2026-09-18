@@ -159,12 +159,12 @@
    <button data-act="q" title="Ctrl+Shift+Q">❝</button>
    <button data-act="k" title="Ctrl+K">🔗</button>
    <span class="sep"></span>
-   <input id="titleIn" placeholder="— розділ —"/>
+   <input id="titleIn" placeholder="— розділ —" data-ph-uk="— розділ —" data-ph-en="— chapter —"/>
   </div>
   <div class="editwrap"><textarea id="md" spellcheck="false"></textarea>
    <div id="find" style="display:none;position:sticky;bottom:.5em;margin:0 1.2em;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.5em .7em;z-index:3;gap:.4em;align-items:center">
-    <input id="fq" placeholder="знайти…" style="flex:1;min-width:8em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.3em .5em"/>
-    <input id="fr" placeholder="замінити…" style="flex:1;min-width:8em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.3em .5em"/>
+    <input id="fq" placeholder="знайти…" data-ph-uk="знайти…" data-ph-en="find…" style="flex:1;min-width:8em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.3em .5em"/>
+    <input id="fr" placeholder="замінити…" data-ph-uk="замінити…" data-ph-en="replace…" style="flex:1;min-width:8em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.3em .5em"/>
     <span id="fcn" class="muted" style="min-width:5em"></span>
     <button class="btn ghost" id="fnext">↓</button><button class="btn ghost" id="fprev">↑</button>
     <button class="btn ghost" id="fone">→</button><button class="btn ghost" id="fall">⇒all</button>
@@ -189,13 +189,13 @@
  <span id="pvOf" class="muted">/ 1</span>
  <button id="pvNext" title="→ / PgDn: наступна сторінка">▶</button><button id="pvLast" title="остання сторінка (End)">⏭</button>
  <label class="muted" style="display:flex;gap:.25em;align-items:center;cursor:pointer" title="розгортка книги: 2 сторінки поруч (spread)"><input id="pvSpread" type="checkbox" style="width:auto"/>spread</label>
- <button id="pvView" class="pill" title="V — режим: стрічка / сторінки (як у PDF ±1)">стрічка</button>
+ <button id="pvView" class="pill" title="V — режим: стрічка / сторінки (як у PDF ±1)" data-tip-uk="V — режим: стрічка / сторінки (як у PDF ±1)" data-tip-en="V — view: flow / pages (like a PDF ±1)">стрічка</button>
  <span class="sep"></span>
  <span id="stRight" title="zoom — Ctrl+колесо/pinch або Ctrl+±"></span>
  <button id="zOut" title="Ctrl+−">−</button><button id="zReset" title="скинути zoom (Ctrl+0)" style="min-width:3.4em">100%</button><button id="zIn" title="Ctrl++">＋</button>
 </div>
 </div>
-<div id="sheet"><div class="card"><h3 data-i18n="keys">Гарячі клавіші</h3><table id="keysT"></table><p class="muted">Esc — закрити</p></div></div>
+<div id="sheet"><div class="card"><h3 data-i18n="keys">Гарячі клавіші</h3><table id="keysT"></table><p class="muted" data-i18n="esc">Esc — закрити</p></div></div>
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const LS=localStorage;
@@ -205,18 +205,26 @@ const L={
   del:'Видалити розділ?', sure:'Перейменувати — Enter, скасувати — Esc', chap:'Розділ', renamed:'перейменовано', reordered:'порядок збережено',
   meta:'⚙ Мета книги', author:'автор', lang:'мова', cover:'обкладинка', formats:'формати (для Build products)',
   msave:'Зберегти', mbuild:'📦 Build products', mdel:'✕ Видалити чернетку',
-  mtr:'⇄ Перекласти видання', mtrbusy:'копіюю видання…', mtrok:'нова мовна редакція', isbn:'ISBN (print)'},
+  mtr:'⇄ Перекласти видання', mtrbusy:'копіюю видання…', mtrok:'нова мовна редакція', isbn:'ISBN (print)',
+  draftNone:'— чернетка —', chapPh:'— розділ —', esc:'Esc — закрити', flow:'стрічка', pagesView:'сторінки',
+  draftName:'Назва чернетки:', newChapTitle:'Новий розділ', find:'знайти…', replace:'замінити…'},
  en:{app:'Studio — drafts',shelf:'Shelf',cover:'Covers',products:'Products',target:'goal',today:'today',new:'＋ chapter',
   keys:'Keyboard shortcuts',idle:'Ready',saving:'saving…',saved:'Saved',failed:'failed — retry',
   del:'Delete this chapter?', sure:'Rename — Enter, Esc cancels', chap:'Chapter', renamed:'renamed', reordered:'order saved',
   meta:'⚙ Book meta', author:'author', lang:'language', cover:'cover', formats:'formats (for Build products)',
   msave:'Save', mbuild:'📦 Build products', mdel:'✕ Delete draft',
-  mtr:'⇄ Translate edition', mtrbusy:'forking edition…', mtrok:'new language edition', isbn:'ISBN (print)'}
+  mtr:'⇄ Translate edition', mtrbusy:'forking edition…', mtrok:'new language edition', isbn:'ISBN (print)',
+  draftNone:'— draft —', chapPh:'— chapter —', esc:'Esc — close', flow:'flow', pagesView:'pages',
+  draftName:'Draft title:', newChapTitle:'New chapter', find:'find…', replace:'replace…'}
 };
 let lang=LS.getItem('rb.lang')||'uk';
 function T(k){return (L[lang]&&L[lang][k])||L.uk[k]||k;}
 function applyI18n(){document.documentElement.lang=lang==='uk'?'uk':'en';
- $$('.bar input'); $$('[data-i18n]').forEach(e=>{const k=e.dataset.i18n;if(L[lang][k]!==undefined)e.textContent=L[lang][k];});
+ document.title=T('app');
+ $$('[data-i18n]').forEach(e=>{const k=e.dataset.i18n;if(L[lang][k]!==undefined)e.textContent=L[lang][k];});
+ $$('[data-ph-uk]').forEach(e=>{e.placeholder=lang==='en'?(e.dataset.phEn||e.placeholder):(e.dataset.phUk||e.placeholder);});
+ const sel=$('#draftSel');if(sel&&sel.options[0]&&!sel.options[0].value)sel.options[0].textContent=T('draftNone');
+ const vb=$('#pvView');if(vb)vb.textContent=(typeof pvMode!=='undefined'&&pvMode==='page')?T('pagesView'):T('flow');
  $('#langChip').textContent=lang==='uk'?'EN':'УК';}
 /* state */
 let drafts=[],cur=null,chaps=[],curNum=0,lastWords=0,dirty=false;
@@ -235,7 +243,7 @@ async function loadDrafts(){
  const sel=$('#draftSel')||(function(){const s=document.createElement('select');s.id='draftSel';
   s.style.cssText='background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.3em';
   $('.railhead').prepend(s);return s;})();
- sel.innerHTML='<option value="">— чернетка —</option>'+drafts.map(d=>`<option value="${d.id}">${d.title}</option>`).join('');
+ sel.innerHTML='<option value="">'+T('draftNone')+'</option>'+drafts.map(d=>`<option value="${d.id}">${d.title}</option>`).join('');
  sel.onchange=()=>openDraft(sel.value);
  if(!cur&&drafts.length){sel.value=drafts[0].id;openDraft(drafts[0].id);}
 }
@@ -419,7 +427,7 @@ $$('.bar button').forEach(b=>b.onclick=()=>{const a=b.dataset.act;
   const avail=$('#prevPane').clientWidth-20,availH=$('#prevPane').clientHeight-20,m=pvMetrics();
   box.style.zoom=Math.min(avail/(m.pw*(pvSpread&&pvN>1?2:1)),availH/m.ph,1);
   $('#pvNo').value=pvPage;$('#pvNo').max=pvN;$('#pvOf').textContent='/ '+pvN;
-  const vb=$('#pvView');if(vb)vb.textContent=pvMode==='page'?(lang==='en'?'pages':'сторінки'):(lang==='en'?'flow':'стрічка');}
+  const vb=$('#pvView');if(vb)vb.textContent=pvMode==='page'?T('pagesView'):T('flow');}
  function pvGo(n){pvPage=Math.max(1,Math.min(pvN,pvPage+n));renderPages();}
  function pvGoTo(n,blkEl){if(!cur)return;pvPage=Math.max(1,Math.min(pvN,n));renderPages();
   const b=blkEl&&+blkEl.dataset.b;if(blkEl==null||Number.isNaN(b))return;
@@ -484,16 +492,16 @@ function touchGoals(){
 function showGoals(){const g=JSON.parse(LS.getItem(goalKey())||'{}');$('#gToday').textContent=g.today||0;$('#gStreak').textContent='🔥 '+(g.streak||0);$('#gTarget').value=g.target||0;}
 $('#gTarget').onchange=touchGoals;
 /* cheatsheet */
-$('#keysT').innerHTML=[['Ctrl+B','**bold**'],['Ctrl+I','*italic*'],['Ctrl+E','`code`'],['Ctrl+K','[link]()'],['Alt+1/2/3','#/##/###'],['Ctrl+S','save now'],['Ctrl+F','find & replace'],['Ctrl+Shift+F','search all chapters'],['Ctrl+P','quick-open chapter'],['F9','focus/zen (Esc exit)'],['/ at line start','slash menu'],['Ctrl+1 / Ctrl+2','toggle rails'],['? ','this sheet'],['⋮⋮ drag','reorder chapters (mouse/touch)'],['li focus + Alt+↑↓','reorder (keyboard)'],['Ctrl+колесо / pinch','zoom редактор+перегляд'],['Ctrl+± / Ctrl+0','zoom +/−/100%'],['V','view: стрічка ↔ сторінки'],['←/→ / PgUp/PgDn','page prev/next'],['Home/End','first/last page'],['dbl-click title','rename'],['click preview','jump caret']].map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+$('#keysT').innerHTML=[['Ctrl+B','**bold**'],['Ctrl+I','*italic*'],['Ctrl+E','`code`'],['Ctrl+K','[link]()'],['Alt+1/2/3','#/##/###'],['Ctrl+S','save now'],['Ctrl+F','find & replace'],['Ctrl+Shift+F','search all chapters'],['Ctrl+P','quick-open chapter'],['F9','focus/zen (Esc exit)'],['/ at line start','slash menu'],['Ctrl+1 / Ctrl+2','toggle rails'],['? ','this sheet'],['⋮⋮ drag','reorder chapters (mouse/touch)'],['li focus + Alt+↑↓','reorder (keyboard)'],['Ctrl+колесо / pinch','zoom редактор+перегляд'],['Ctrl+± / Ctrl+0','zoom +/−/100%'],['V', lang==='en'?'view: flow ↔ pages':'view: стрічка ↔ сторінки'],['←/→ / PgUp/PgDn','page prev/next'],['Home/End','first/last page'],['dbl-click title','rename'],['click preview','jump caret']].map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join('');
 /* new chapter */
 $('#addChap').onclick=async()=>{
- if(!cur){const name=prompt('Назва чернетки / book title:');if(!name)return;
+ if(!cur){const name=prompt(T('draftName'));if(!name)return;
   await j('/api/drafts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:name,language:lang==='uk'?'uk':'en'})});
   await loadDrafts();$('#draftSel').value=(name.toLowerCase().replace(/[^a-z0-9-]+/gi,' ').trim().replace(/ +/g,'-'));openDraft($('#draftSel').value);return;}
  const n=Math.max(0,...chaps.map(c=>c.number))+1;
  await save({number:n,title:'',content:''});
  chaps.push({number:n,title:'',content:'',words:0});selectChapter(n);renderChaps();
- async function save(c){await j(`/api/drafts/${cur.id}/chapter/${c.number}`,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({title:'Новий розділ',content:''})});}
+ async function save(c){await j(`/api/drafts/${cur.id}/chapter/${c.number}`,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({title:T('newChapTitle'),content:''})});}
 };
 /* find & replace (RB-25) */
 let fIdx=-1;

@@ -30,26 +30,26 @@
 <p class="author" data-uk="KDP-шаблони та багатошарова студія обкладинок" data-en="KDP templates and layered cover studio">KDP-шаблони та багатошарова студія обкладинок</p>
 </header>
 <div class="tabs">
- <button class="tab on" data-tab="gen">Шаблон (guides)</button>
- <button class="tab" data-tab="studio">Студія (шари)</button>
+ <button class="tab on" data-tab="gen" data-uk="Шаблон (guides)" data-en="Template (guides)">Шаблон (guides)</button>
+ <button class="tab" data-tab="studio" data-uk="Студія (шари)" data-en="Studio (layers)">Студія (шари)</button>
  <span class="grow" style="flex:1"></span><span class="tab" id="langChip" style="cursor:pointer">EN</span>
 </div>
 
 <section id="tab-gen">
-<form id="f">
- <label>Trim<select id="trim"></select></label>
- <label>Сторінок<input id="pages" type="number" value="300" min="24" max="828" step="2"/></label>
- <label>Папір<select id="paper">
+<form id="f" action="#" method="post" onsubmit="event.preventDefault();">
+ <label><span data-uk="Trim" data-en="Trim">Trim</span><select id="trim"></select></label>
+ <label><span data-uk="Сторінок" data-en="Pages">Сторінок</span><input id="pages" type="number" value="300" min="24" max="828" step="2"/></label>
+ <label><span data-uk="Папір" data-en="Paper">Папір</span><select id="paper">
   <option value="white">white</option><option value="cream">cream</option>
   <option value="ground">groundwood</option><option value="premium">premium color</option>
  </select></label>
- <label>Тип<select id="mode">
+ <label><span data-uk="Тип" data-en="Kind">Тип</span><select id="mode">
   <option value="pb">paperback (KDP)</option>
   <option value="hc">hardcover (case laminate)</option>
   <option value="dj">dust jacket (Ingram)</option>
  </select></label>
- <label>ISBN (штрих-код)<input id="isbn" placeholder="978-…-…-…-x" size="20"/></label>
- <button type="submit">Згенерувати</button>
+ <label><span data-uk="ISBN (штрих-код)" data-en="ISBN (barcode)">ISBN (штрих-код)</span><input id="isbn" placeholder="978-…-…-…-x" size="20"/></label>
+ <button type="submit" data-uk="Згенерувати" data-en="Generate">Згенерувати</button>
  <a id="dl" hidden download="cover-template.svg"><button type="button">SVG ↓</button></a>
 </form>
 <p class="meta" id="meta"></p>
@@ -58,10 +58,10 @@
 
 <section id="tab-studio" hidden>
  <form id="sf">
-  <label>Чернетка<select id="draftSel"><option value="">— нова —</option></select></label>
-  <label>Назва<input id="stitle" size="22"/></label>
-  <label>Автор<input id="sauthor" size="16"/></label>
-  <label>Формат<select id="smode">
+  <label><span data-uk="Чернетка" data-en="Draft">Чернетка</span><select id="draftSel"><option value="" data-uk="— нова —" data-en="— new —">— нова —</option></select></label>
+  <label><span data-uk="Назва" data-en="Title">Назва</span><input id="stitle" size="22"/></label>
+  <label><span data-uk="Автор" data-en="Author">Автор</span><input id="sauthor" size="16"/></label>
+  <label><span data-uk="Формат" data-en="Format">Формат</span><select id="smode">
    <option value="ebook">eBook 1600×2560</option>
    <option value="pb" selected>paperback wrap</option>
    <option value="hc">hardcover wrap</option>
@@ -72,13 +72,13 @@
   <label>Front bg<input id="sbg" type="color" value="#1d2733"/></label>
   <label>Back bg<input id="sbg2" type="color" value="#1d2733"/></label>
   <label>Spine bg<input id="sspine" type="color" value="#16202c"/></label>
-  <label>Текст корінця<select id="sspinetxt"><option value="on">auto (pages&gt;79)</option><option value="off">вимкнено</option></select></label>
-  <label>Обкладинка-картинка<input id="simg" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"/></label>
+  <label><span data-uk="Текст корінця" data-en="Spine text">Текст корінця</span><select id="sspinetxt"><option value="on">auto (pages&gt;79)</option><option value="off" data-uk="вимкнено" data-en="off">вимкнено</option></select></label>
+  <label><span data-uk="Обкладинка-картинка" data-en="Cover image">Обкладинка-картинка</span><input id="simg" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"/></label>
  </form>
  <div class="bar" style="display:flex;gap:.5em;margin-top:.6em;flex-wrap:wrap;">
-  <button id="renderBtn">Рендер</button>
-  <button id="saveBtn" class="ghost">Зберегти cover.json у чернетку</button>
-  <button id="applyBtn" class="ghost">Застосувати переміщення</button>
+  <button id="renderBtn" data-uk="Рендер" data-en="Render">Рендер</button>
+  <button id="saveBtn" class="ghost" data-uk="Зберегти cover.json у чернетку" data-en="Save cover.json to draft">Зберегти cover.json у чернетку</button>
+  <button id="applyBtn" class="ghost" data-uk="Застосувати переміщення" data-en="Apply offsets">Застосувати переміщення</button>
   <span id="safeBadge" class="meta"></span>
   <button id="svgBtn" class="ghost">SVG ↓</button>
    <button id="pngBtn" class="ghost">PNG ↓</button>
@@ -86,33 +86,48 @@
   <span id="layBox" class="meta" style="display:flex;gap:.5em;align-items:center"></span>
   <span id="sstat" class="meta"></span>
  </div>
- <p class="meta">Клік по шару — перетягни мишею; стрілки nudge 1px (Shift 10px); Del — прибрати текст; Esc — зняти вибір.</p>
+ <p class="meta" data-uk="Клік по шару — перетягни мишею; стрілки nudge 1px (Shift 10px); Del — прибрати текст; Esc — зняти вибір." data-en="Click a layer — drag; arrows nudge 1px (Shift 10px); Del removes text; Esc clears selection.">Клік по шару — перетягни мишею; стрілки nudge 1px (Shift 10px); Del — прибрати текст; Esc — зняти вибір.</p>
  <div id="preview"></div>
  <div class="bar" style="margin-top:1em;">
-  <button id="v3Btn" class="ghost">🧊 3D-перегляд</button>
-  <button id="v3Reset" class="ghost" hidden>скинути кут</button>
+  <button id="v3Btn" class="ghost" data-uk="🧊 3D-перегляд" data-en="🧊 3D preview">🧊 3D-перегляд</button>
+  <button id="v3Reset" class="ghost" hidden data-uk="скинути кут" data-en="reset angle">скинути кут</button>
   <span id="v3Dims" class="meta"></span>
  </div>
   <div id="stage3d" hidden style="perspective:1600px;background:#0c0f16;border-radius:12px;margin-top:.6em;height:480px;overflow:hidden;position:relative;touch-action:none">
    <div id="book3d" style="position:absolute;left:50%;top:50%;transform-style:preserve-3d"></div>
-   <p style="position:absolute;bottom:.5em;width:100%;text-align:center;margin:0" class="muted">тягни / палець — обертати · колесо / pinch — zoom · з фокусу: ←→↑↓ кут, PgUp/PgDn зум, 0 — скинути</p>
+   <p style="position:absolute;bottom:.5em;width:100%;text-align:center;margin:0" class="muted" data-uk="тягни / палець — обертати · колесо / pinch — zoom · з фокусу: ←→↑↓ кут, PgUp/PgDn зум, 0 — скинути" data-en="drag / finger — rotate · wheel / pinch — zoom · from focus: ←→↑↓ angle, PgUp/PgDn zoom, 0 — reset">тягни / палець — обертати · колесо / pinch — zoom · з фокусу: ←→↑↓ кут, PgUp/PgDn зум, 0 — скинути</p>
   </div>
 </section>
 </div>
 <script>
 const $=s=>document.querySelector(s);
-(function(){const L={uk:['Шаблон (guides)','Студія (шари)','Полиця','Продукти','Згенерувати','Чернетка','Назва','Автор','Формат','Сторінок','Папір','Тип','ISBN (штрих-код)','Рендер','Зберегти cover.json у чернетку','оберіть чернетку'],
- en:['Template (guides)','Studio (layers)','Shelf','Products','Generate','Draft','Title','Author','Format','Pages','Paper','Kind','ISBN (barcode)','Render','Save cover.json to draft','pick a draft']};
- let lang=localStorage.getItem('rb.lang')||'uk';const keys=document.querySelectorAll('label span,#sstat');
- window._rbLang=()=>lang;
- function apply(){const t=L[lang];document.getElementById('langChip').textContent=lang==='uk'?'EN':'УК';
-  const tabs=document.querySelectorAll('.tab[data-tab]');if(tabs[0])tabs[0].textContent=t[0];if(tabs[1])tabs[1].textContent=t[1];}
- document.getElementById('langChip').onclick=()=>{lang=lang==='uk'?'en':'uk';localStorage.setItem('rb.lang',lang);apply();};apply();})();
+(function(){
+ let lang=localStorage.getItem('rb.lang')||'uk';
+ function paint(){
+  lang=localStorage.getItem('rb.lang')||'uk';
+  document.documentElement.lang=lang;
+  document.querySelectorAll('#cover-app [data-uk][data-en]').forEach(function(el){
+   if(el.querySelector&&el.querySelector('input,select,textarea'))return;
+   var v=lang==='en'?el.getAttribute('data-en'):el.getAttribute('data-uk');
+   if(v!==null)el.textContent=v;
+  });
+  var c=document.getElementById('langChip');
+  if(c)c.textContent=lang==='uk'?'EN':'УК';
+ }
+ var chip=document.getElementById('langChip');
+ if(chip)chip.onclick=function(){
+  var next=lang==='uk'?'en':'uk';
+  if(window.rbSetLang)window.rbSetLang(next);
+  else{localStorage.setItem('rb.lang',next);paint();}
+ };
+ document.addEventListener('rb-lang',paint);
+ paint();
+})();
 const TRIMS={pb:["5x8","5.06x7.81","5.25x8","5.5x8.5","6x9","6.14x9.21","6.69x9.61","7x10","7.44x9.69","7.5x9.25","8x10","8.25x6","8.25x8.25","8.27x11.69","8.5x8.5","8.5x11"],
  hc:["5.5x8.5","6x9","6.14x9.21","7x10","8.25x11"], dj:["5x8","5.5x8.5","6x9","7x10"]};
-function fill(sel,table,keep){const cur=keep?$( sel).value:'6x9';$(sel).innerHTML=table.map(t=>'<option'+(t==cur?' selected':'')+'>'+t+'</option>').join('');}
-function fillTrims(){fill('#trim',TRIMS[$('#mode').value],false);}
-function fillSTrims(){const m=$('#smode').value;fill('#strim',TRIMS[m]||['6x9'],true);}
+function fill(sel,table,keep){const list=table||[];if(!list.length)return;const node=$(sel);if(!node)return;const cur=keep?node.value:'6x9';node.innerHTML=list.map(t=>'<option'+(t==cur?' selected':'')+'>'+t+'</option>').join('');}
+function fillTrims(){const mode=($('#mode')&&$('#mode').value)||'pb';fill('#trim',TRIMS[mode]||TRIMS.pb,false);}
+function fillSTrims(){const m=($('#smode')&&$('#smode').value)||'pb';fill('#strim',TRIMS[m]||['6x9'],true);}
 $('#mode').addEventListener('change',fillTrims);fillTrims();
 $('#smode').addEventListener('change',fillSTrims);fillSTrims();
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
@@ -121,7 +136,8 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
 // --- template tab (RB-3 API) ---
 $('#f').addEventListener('submit',async ev=>{
  ev.preventDefault();
- const p=new URLSearchParams({trim:$('#trim').value,pages:$('#pages').value,paper:$('#paper').value,mode:$('#mode').value});
+ const trim=$('#trim').value||'6x9';
+ const p=new URLSearchParams({trim,pages:$('#pages').value||'300',paper:$('#paper').value||'white',mode:$('#mode').value||'pb'});
  if($('#isbn').value.trim())p.set('isbn',$('#isbn').value.trim());
  const r=await fetch('/api/cover-template?'+p);const svg=await r.text();
  if(!r.ok){$('#canvas').textContent=svg;return;}
@@ -135,7 +151,8 @@ let doc=null,imgData=null;
 async function boot(){
  try{
   const drafts=await (await fetch('/api/drafts')).json();
-  $('#draftSel').innerHTML='<option value="">— нова —</option>'+drafts.map(d=>`<option value="${d.id}">${d.title}</option>`).join('');
+  const none=(localStorage.getItem('rb.lang')==='en')?'— new —':'— нова —';
+  $('#draftSel').innerHTML='<option value="">'+none+'</option>'+drafts.map(d=>`<option value="${d.id}">${d.title}</option>`).join('');
  }catch(e){}
 }
 $('#draftSel').onchange=async()=>{
@@ -307,7 +324,7 @@ function drawLayBox(svgEl){
     if(dist&&d)setZoom(z0*d/dist,$('#preview svg'));}});
   const up=e=>{pts.delete(e.pointerId);if(pts.size<2){window._pinch=false;dist=0;}};
   pv.addEventListener('pointerup',up);pv.addEventListener('pointercancel',up);
-  pv.addEventListener('wheel',e=>{if(!e.ctrlKey)return;e.preventDefault();setZoom(zoom*(e.deltaY<0?1.08:.93),$('#preview svg'));},{passive:false});}}
+  pv.addEventListener('wheel',e=>{if(!e.ctrlKey)return;e.preventDefault();setZoom(zoom*(e.deltaY<0?1.08:.93),$('#preview svg'));},{passive:false});}
  new MutationObserver(bind).observe(document.getElementById('preview'),{childList:true});bind();})();
 document.addEventListener('keydown',e=>{
  if(e.target===$('#stage3d'))return;

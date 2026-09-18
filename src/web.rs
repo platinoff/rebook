@@ -1280,4 +1280,31 @@ mod tests {
         assert!(body.ends_with("api-draft.epub"));
         assert!(std::path::Path::new(body.trim_end()).exists());
     }
+
+    #[test]
+    fn cover_html_blocks_native_get_and_has_en_labels() {
+        let h = include_str!("../ui/cover.html");
+        assert!(h.contains("onsubmit=\"event.preventDefault();\""));
+        assert!(h.contains("method=\"post\""));
+        assert!(h.contains("data-en=\"Generate\""));
+        assert!(h.contains("fillTrims"));
+        assert!(h.contains("data-en=\"Pages\""));
+        assert!(h.contains("data-uk=\"Згенерувати\""));
+    }
+
+    #[test]
+    fn studio_html_covers_uk_en_leftovers() {
+        let h = include_str!("../ui/studio.html");
+        assert!(h.contains("draftNone"));
+        assert!(h.contains("data-i18n=\"esc\""));
+        assert!(h.contains("data-ph-en=\"— chapter —\""));
+        assert!(h.contains("Esc — close"));
+    }
+
+    #[test]
+    fn products_html_title_is_bilingual() {
+        let h = include_str!("../ui/products.html");
+        assert!(h.contains("data-en=\"Products — rebook\""));
+        assert!(h.contains("data-uk=\"Продукти — rebook\""));
+    }
 }

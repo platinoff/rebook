@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Продукти — rebook</title>
+<title data-uk="Продукти — rebook" data-en="Products — rebook">Продукти — rebook</title>
 <link rel="stylesheet" href="/styles.css"/>
 <style>
  .card{background:#1b1e27;border:1px solid #2f3542;border-left:4px solid #7aa2f7;border-radius:10px;padding:1em 1.2em;margin:1em 0;}
@@ -20,42 +20,59 @@
 <div id="products-app">
 <header>
 <h1 data-uk="Продукти (Shelf)" data-en="Products (Shelf)">Продукти (Shelf)</h1>
-<p class="author">Зібрано <code>cargo run -- shelf</code>; перевірка воріт — <code>/api/print/check</code>.
- <span class="badge gate" id="langChip" style="margin-left:1em;cursor:pointer">EN</span></p>
-<p class="meta">Зібрано <code>cargo run -- shelf</code>; перевірка воріт — <code>/api/print/check</code>.</p>
+<p class="author"><span data-uk="Зібрано cargo run -- shelf; перевірка воріт — /api/print/check." data-en="Built with cargo run -- shelf; gate check — /api/print/check.">Зібрано <code>cargo run -- shelf</code>; перевірка воріт — <code>/api/print/check</code>.</span>
+ <span class="badge" id="langChip" style="margin-left:1em;cursor:pointer">EN</span></p>
+<p class="meta" data-uk="Зібрано cargo run -- shelf; перевірка воріт — /api/print/check." data-en="Built with cargo run -- shelf; gate check — /api/print/check.">Зібрано <code>cargo run -- shelf</code>; перевірка воріт — <code>/api/print/check</code>.</p>
 </header>
 <div id="list">…</div>
 </div>
 <script>
 const $=s=>document.querySelector(s);
-(function(){const L={uk:['← Книги','Продукти','Зібрано','Немає зібраних продуктів. Додай formats у product.json і запусти cargo run -- shelf.'],
- en:['← Books','Products','Built','No built products yet. Add formats in product.json and run cargo run -- shelf.']};
+(function(){
  let lang=localStorage.getItem('rb.lang')||'uk';
- function apply(){const c=document.getElementById('langChip');c.textContent=lang==='uk'?'EN':'УК';
-  const h=document.querySelector('header h1');if(h)h.textContent=L[lang][1];
-  const a=document.querySelector('header .author a');if(a)a.textContent=L[lang][0];}
- document.getElementById('langChip').onclick=()=>{lang=lang==='uk'?'en':'uk';localStorage.setItem('rb.lang',lang);apply();};apply();})();
+ function apply(){
+  lang=localStorage.getItem('rb.lang')||'uk';
+  document.documentElement.lang=lang;
+  document.title=lang==='en'?'Products — rebook':'Продукти — rebook';
+  const c=document.getElementById('langChip');if(c)c.textContent=lang==='uk'?'EN':'УК';
+ }
+ document.getElementById('langChip').onclick=()=>{
+  const next=lang==='uk'?'en':'uk';
+  if(window.rbSetLang)window.rbSetLang(next);else{localStorage.setItem('rb.lang',next);apply();}
+ };
+ document.addEventListener('rb-lang',apply);
+ apply();
+ window._rbEmpty=()=> (localStorage.getItem('rb.lang')==='en')
+  ?'No built products yet. Add formats in product.json and run cargo run -- shelf.'
+  :'Немає зібраних продуктів. Додай formats у product.json і запусти cargo run -- shelf.';
+ window._rbGate=(n)=> (localStorage.getItem('rb.lang')==='en')
+  ? (n==null?'KDP gate: check':n)
+  : (n==null?'KDP-ворота: перевірити':n);
+})();
 async function boot(){
  let items=[];try{items=await (await fetch('/api/products')).json();}catch(e){}
+ const empty=window._rbEmpty();
  $('#list').innerHTML=items.length?items.map(p=>{
   const fmts=[];
   if(p.has_ebook)fmts.push('<a class="badge" href="/api/products/download/'+p.slug+'/'+p.slug+'.epub" download>eBook EPUB ↓</a>');
   for(const k of p.packages){
    fmts.push('<span class="badge">'+k.format+' · '+k.trim+' · '+k.pages+' p</span>');
    if(k.zip)fmts.push('<a class="badge" href="/api/products/download/'+p.slug+'/'+k.zip+'" download>zip ↓</a>');
-   fmts.push('<span class="badge gate" data-s="'+p.slug+'" data-f="'+k.format+'">KDP-ворота: перевірити</span>');
+   fmts.push('<span class="badge gate" data-s="'+p.slug+'" data-f="'+k.format+'">'+(window._rbGate())+'</span>');
    fmts.push('<div class="gateout" id="g-'+p.slug+'-'+k.format+'"></div>');
   }
   return '<div class="card"><h3>'+p.slug+'</h3>'+fmts.join(' ')+'</div>';
- }).join(''):'<p>Немає зібраних продуктів. Додай formats у <code>product.json</code> і запусти <code>cargo run -- shelf</code>.</p>';
+ }).join(''):'<p>'+empty+'</p>';
  document.querySelectorAll('.badge.gate').forEach(b=>b.onclick=async()=>{
+  if(!b.dataset.s)return;
   const out=$('#g-'+b.dataset.s+'-'+b.dataset.f);out.style.display='block';out.textContent='…';
   const r=await fetch('/api/print/check/'+b.dataset.s+'/'+b.dataset.f);
   const items=await r.json();
   const bad=items.filter(i=>!i.ok);
   out.textContent=items.map(i=>(i.ok?'✓ ':'✗ ')+i.name+' · '+i.detail).join('\n');
   b.className='badge '+(r.ok&&bad.length===0?'':'bad');
-  b.textContent='KDP-ворота: '+(r.ok&&bad.length===0?'GREEN':(r.ok?bad.length+' FAIL':'помилка'));
+  const en=localStorage.getItem('rb.lang')==='en';
+  b.textContent=(en?'KDP gate: ':'KDP-ворота: ')+(r.ok&&bad.length===0?'GREEN':(r.ok?bad.length+' FAIL':(en?'error':'помилка')));
  });
 }
 boot();
