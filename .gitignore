@@ -13,6 +13,9 @@
 /workspace/
 /products/
 
+# ECI FOGRA39 / ISOcoated drop-in (RB-46) — not shipped, set REBOOK_ICC_CMYK
+/icc/*.icc
+
 # Book outputs — never track compiled/exported book artifacts
 *.epub
 *.azw3

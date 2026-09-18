@@ -34,12 +34,16 @@ pub struct PdfxProfile {
     pub trim: Option<(f64, f64, f64, f64)>,
 }
 
-/// An embedded raster for cover art (RB-16c): JPEG passthrough (DCTDecode).
+/// An embedded raster for cover art (RB-16c/RB-46): JPEG passthrough (DCTDecode).
 #[derive(Debug, Clone)]
 pub struct RasterImage {
     pub w_px: u32,
     pub h_px: u32,
     pub data: Vec<u8>,
+    /// `/DeviceCMYK` when true, else `/DeviceRGB`.
+    pub cmyk: bool,
+    /// Photoshop CMYK JPEG invert (`/Decode [1 0 1 0 1 0 1 0]`).
+    pub invert: bool,
 }
 
 /// A page being built: ops accumulate as a content-stream `Vec<u8>`.
@@ -76,7 +80,25 @@ impl PdfPageBuilder {
 
     /// Register a JPEG raster (bytes as-is, DCTDecode). Returns the image index.
     pub fn add_image(&mut self, w_px: u32, h_px: u32, data: Vec<u8>) -> usize {
-        self.images.push(RasterImage { w_px, h_px, data });
+        self.add_image_space(w_px, h_px, data, false, false)
+    }
+
+    /// Register a JPEG with an explicit PDF color space (RB-46 CMYK passthrough).
+    pub fn add_image_space(
+        &mut self,
+        w_px: u32,
+        h_px: u32,
+        data: Vec<u8>,
+        cmyk: bool,
+        invert: bool,
+    ) -> usize {
+        self.images.push(RasterImage {
+            w_px,
+            h_px,
+            data,
+            cmyk,
+            invert,
+        });
         self.images.len() - 1
     }
 
@@ -465,9 +487,15 @@ impl PdfPageBuilder {
         for (i, im) in self.images.iter().enumerate() {
             let n = img0 + i as u32;
             offsets.push(out.len());
+            let space = if im.cmyk { "/DeviceCMYK" } else { "/DeviceRGB" };
+            let decode = if im.cmyk && im.invert {
+                " /Decode [1 0 1 0 1 0 1 0]"
+            } else {
+                ""
+            };
             write!(
                 out,
-                "{n} 0 obj\n<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n",
+                "{n} 0 obj\n<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {space} /BitsPerComponent 8 /Filter /DCTDecode{decode} /Length {} >>\nstream\n",
                 im.w_px,
                 im.h_px,
                 im.data.len()

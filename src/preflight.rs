@@ -69,6 +69,76 @@ fn push(v: &mut Vec<Warn>, id: &'static str, ok: bool, detail: impl Into<String>
     });
 }
 
+/// JPEG SOF color space (RB-46).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JpegSpace {
+    Gray,
+    Rgb,
+    Cmyk,
+}
+
+/// Size + color space from JPEG markers (no decode).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JpegInfo {
+    pub w: u32,
+    pub h: u32,
+    pub space: JpegSpace,
+    /// Photoshop APP14 CMYK often needs PDF `/Decode [1 0 1 0 1 0 1 0]`.
+    pub invert: bool,
+}
+
+/// Walk JPEG markers for SOF0–SOF3 size/components and Adobe APP14.
+pub(crate) fn jpeg_info(b: &[u8]) -> Option<JpegInfo> {
+    if b.len() < 4 || b[0..2] != [0xFF, 0xD8] {
+        return None;
+    }
+    let mut i = 2usize;
+    let mut adobe_tf: Option<u8> = None;
+    let mut dim: Option<(u32, u32, u8)> = None;
+    while i + 9 < b.len() {
+        if b[i] != 0xFF {
+            i += 1;
+            continue;
+        }
+        let m = b[i + 1];
+        if matches!(m, 0xC0..=0xC3) {
+            let h = u16::from_be_bytes(b[i + 5..i + 7].try_into().ok()?) as u32;
+            let w = u16::from_be_bytes(b[i + 7..i + 9].try_into().ok()?) as u32;
+            let nf = *b.get(i + 9)?;
+            dim = Some((w, h, nf));
+            break;
+        }
+        if matches!(m, 0xD8 | 0x01 | 0x00) || (0xD0..=0xD7).contains(&m) {
+            i += 2;
+            continue;
+        }
+        if m == 0xD9 {
+            break;
+        }
+        let len = u16::from_be_bytes(b[i + 2..i + 4].try_into().ok()?) as usize;
+        if m == 0xEE && len >= 14 && i + 2 + len <= b.len() {
+            let payload = &b[i + 4..i + 2 + len];
+            if payload.starts_with(b"Adobe") && payload.len() >= 12 {
+                adobe_tf = Some(payload[11]);
+            }
+        }
+        i += 2 + len;
+    }
+    let (w, h, nf) = dim?;
+    let space = match nf {
+        1 => JpegSpace::Gray,
+        4 => JpegSpace::Cmyk,
+        _ => JpegSpace::Rgb,
+    };
+    let invert = space == JpegSpace::Cmyk && adobe_tf.is_some();
+    Some(JpegInfo {
+        w,
+        h,
+        space,
+        invert,
+    })
+}
+
 /// PNG IHDR / JPEG SOF0/SOF2 size sniffing (no image crate).
 pub(crate) fn img_size(b: &[u8]) -> Option<(u32, u32)> {
     if b.len() > 24 && b[0..8] == *b"\x89PNG\r\n\x1a\n" && &b[12..16] == b"IHDR" {
@@ -76,28 +146,30 @@ pub(crate) fn img_size(b: &[u8]) -> Option<(u32, u32)> {
         let h = u32::from_be_bytes(b[20..24].try_into().ok()?);
         return Some((w, h));
     }
-    if b.len() > 4 && b[0..2] == [0xFF, 0xD8] {
-        let mut i = 2usize;
-        while i + 9 < b.len() {
-            if b[i] != 0xFF {
-                i += 1;
-                continue;
-            }
-            let m = b[i + 1];
-            if matches!(m, 0xC0..=0xC3) {
-                let h = u16::from_be_bytes(b[i + 5..i + 7].try_into().ok()?) as u32;
-                let w = u16::from_be_bytes(b[i + 7..i + 9].try_into().ok()?) as u32;
-                return Some((w, h));
-            }
-            if matches!(m, 0xD8 | 0x01 | 0x00) || (0xD0..=0xD7).contains(&m) {
-                i += 2;
-                continue;
-            }
-            let len = u16::from_be_bytes(b[i + 2..i + 4].try_into().ok()?) as usize;
-            i += 2 + len;
-        }
+    jpeg_info(b).map(|j| (j.w, j.h))
+}
+
+/// SOF-only CMYK JPEG for marker sniffing and PDF/X shape tests (not a real scan).
+#[cfg(test)]
+pub(crate) fn stub_cmyk_jpeg(w: u16, h: u16) -> Vec<u8> {
+    let mut v = vec![0xFF, 0xD8];
+    v.extend_from_slice(&[0xFF, 0xEE, 0x00, 0x0E]);
+    v.extend_from_slice(b"Adobe");
+    v.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0]);
+    let sof_len: u16 = 8 + 3 * 4;
+    v.extend_from_slice(&[0xFF, 0xC0]);
+    v.extend_from_slice(&sof_len.to_be_bytes());
+    v.push(8);
+    v.extend_from_slice(&h.to_be_bytes());
+    v.extend_from_slice(&w.to_be_bytes());
+    v.push(4);
+    for id in 1u8..=4 {
+        v.push(id);
+        v.push(0x11);
+        v.push(0);
     }
-    None
+    v.extend_from_slice(&[0xFF, 0xD9]);
+    v
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -525,5 +597,16 @@ mod tests {
         );
         assert!(!pf2.warnings.iter().any(|w| w.id == "hc:pages" && w.ok));
         assert!(pf2.spine_in > 0.10 && pf2.spine_in < 0.12); // 20p ≈ 0.045+0.06
+    }
+
+    #[test]
+    fn jpeg_info_reads_cmyk_sof_and_adobe_app14() {
+        let j = stub_cmyk_jpeg(8, 8);
+        let info = jpeg_info(&j).expect("cmyk jpeg");
+        assert_eq!(info.w, 8);
+        assert_eq!(info.h, 8);
+        assert_eq!(info.space, JpegSpace::Cmyk);
+        assert!(info.invert, "APP14 Adobe ⇒ invert Decode");
+        assert_eq!(img_size(&j), Some((8, 8)));
     }
 }

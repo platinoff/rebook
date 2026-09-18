@@ -1,7 +1,6 @@
-//! RB-16b: cover-wrap PDF via the in-tree PDF writer — now with real
-//! Cyrillic text (embedded Type0 TrueType), rotated spine text, and vector
-//! EAN-13 barcode. Vector-only still: `front_image` rasters are omitted
-//! (inline images are RB-16c).
+//! RB-16b: cover-wrap PDF via the in-tree PDF writer — Cyrillic (Type0),
+//! rotated spine, vector EAN-13. RB-16c JPEG passthrough; RB-46 CMYK JPEG
+//! + FOGRA39 ICC drop-in on PDF/X-1a.
 
 use std::path::Path;
 
@@ -42,8 +41,10 @@ pub struct CoverPdfReport {
     pub ink_max_pct: f64,
     /// RB-16c: JPEG front art embedded as a DCTDecode XObject.
     pub image_placed: bool,
-    /// RB-16c: front_image present but not embeddable (PNG/WebP or CMYK mode).
+    /// RB-16c: front_image present but not embeddable (PNG/WebP or RGB-in-CMYK).
     pub image_skipped: bool,
+    /// RB-46: CMYK ICC attached as `/DestOutputProfile`.
+    pub icc_attached: bool,
 }
 
 /// Fill a color as RGB or CMYK (RB-17), tracking worst-case ink.
@@ -190,29 +191,40 @@ pub fn render_wrap_pdf_opts(
         embedded_ok = true;
     }
 
-    // RB-16c: raster front art (JPEG passthrough via DCTDecode XObject).
-    // PNG/WebP cannot ride DCTDecode — reported for pre-export conversion.
-    // X-1a/CMYK wraps stay vector-only (RGB rasters break the PDF/X intent).
+    // RB-16c / RB-46: JPEG passthrough. RGB JPEGs stay DeviceRGB (KDP).
+    // CMYK JPEGs (SOF nf=4) ride X-1a as DeviceCMYK. PNG/WebP still skip.
     if let Some(uri) = doc.front_image.as_deref() {
         let b64 = uri.split_once("base64,").map(|(_, r)| r).unwrap_or("");
         match crate::drafts::b64_decode(b64) {
-            Ok(bytes) if bytes.starts_with(&[0xFF, 0xD8]) && !cmyk => {
-                if let Some((iw, ih)) = crate::preflight::img_size(&bytes) {
-                    let idx = page.add_image(iw, ih, bytes);
-                    if ebook {
-                        page.draw_image_cover(idx, 0.0, 0.0, pt(w), pt(h));
-                    } else {
-                        page.draw_image_cover(
-                            idx,
-                            pt(edge + trim_w + spine),
-                            0.0,
-                            pt(trim_w),
-                            pt(h),
-                        );
+            Ok(bytes) if bytes.starts_with(&[0xFF, 0xD8]) => {
+                match crate::preflight::jpeg_info(&bytes) {
+                    Some(info) => {
+                        let is_cmyk = info.space == crate::preflight::JpegSpace::Cmyk;
+                        if cmyk != is_cmyk {
+                            rep.image_skipped = true;
+                        } else {
+                            let idx = page.add_image_space(
+                                info.w,
+                                info.h,
+                                bytes,
+                                is_cmyk,
+                                is_cmyk && info.invert,
+                            );
+                            if ebook {
+                                page.draw_image_cover(idx, 0.0, 0.0, pt(w), pt(h));
+                            } else {
+                                page.draw_image_cover(
+                                    idx,
+                                    pt(edge + trim_w + spine),
+                                    0.0,
+                                    pt(trim_w),
+                                    pt(h),
+                                );
+                            }
+                            rep.image_placed = true;
+                        }
                     }
-                    rep.image_placed = true;
-                } else {
-                    rep.image_skipped = true;
+                    None => rep.image_skipped = true,
                 }
             }
             _ => rep.image_skipped = true,
@@ -286,11 +298,8 @@ pub fn render_wrap_pdf_opts(
     rep.cmyk = cmyk;
     rep.ink_max_pct = ink_max;
     if opts.pdfx {
-        let icc = opts.icc.clone().or_else(|| {
-            std::env::var("REBOOK_ICC_CMYK")
-                .ok()
-                .and_then(|p| std::fs::read(p).ok())
-        });
+        let icc = opts.icc.clone().or_else(crate::icc::discover_cmyk_icc);
+        rep.icc_attached = icc.is_some();
         page.set_pdfx(PdfxProfile {
             condition: "Coated FOGRA39 (ISO 12647-2:2004)".to_string(),
             icc,
@@ -397,6 +406,52 @@ mod tests {
             !rep.image_placed && rep.image_skipped,
             "cmyk must skip RGB raster"
         );
+    }
+
+    #[test]
+    fn pdfx_attaches_cmyk_icc_and_cmyk_jpeg() {
+        let jpg = crate::preflight::stub_cmyk_jpeg(8, 8);
+        let uri = format!(
+            "data:image/jpeg;base64,{}",
+            crate::preflight::b64_encode(&jpg)
+        );
+        let mut d = doc_with(
+            CoverDoc::new("FOGRA drop-in", "A", "pb", "6x9", 300, "white"),
+            None,
+        );
+        d.auto_layout();
+        d.front_image = Some(uri);
+        let out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("wrap-cmyk-jpeg.pdf");
+        let icc = crate::icc::minimal_cmyk_icc();
+        let rep = render_wrap_pdf_opts(
+            &d,
+            &out,
+            &WrapOpts {
+                cmyk: true,
+                pdfx: true,
+                icc: Some(icc.clone()),
+            },
+        )
+        .unwrap();
+        assert!(rep.image_placed, "CMYK JPEG must passthrough on X-1a");
+        assert!(rep.icc_attached);
+        let s = String::from_utf8_lossy(&std::fs::read(&out).unwrap()).into_owned();
+        assert!(s.contains("/DeviceCMYK"), "image + ICC alternate");
+        assert!(s.contains("/DCTDecode"));
+        assert!(s.contains("/Decode [1 0 1 0 1 0 1 0]"), "Adobe invert");
+        assert!(s.contains("/DestOutputProfile"), "ICC linked from OI");
+        assert!(s.contains("/N 4"));
+        assert!(s.contains("GTS_PDFXVersion"));
+        // drop-in file path is accepted by discover:
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("icc-rb46");
+        let _ = std::fs::create_dir_all(&dir);
+        let p = dir.join("FOGRA39.icc");
+        std::fs::write(&p, &icc).unwrap();
+        assert!(crate::icc::discover_cmyk_icc_in(&[p]).is_some());
     }
 
     #[test]

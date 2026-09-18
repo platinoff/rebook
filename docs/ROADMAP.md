@@ -1,9 +1,9 @@
 # Rebook — roadmap (після RB-38)
 
 Тікети живуть на **GSV board**, product `rebook` (`RB-*`). Цей файл — канон
-черги. **RB-40…45 landed**. Next = RB-46.
+черги. **RB-40…46 landed**. Next = RB-47.
 
-## Landed (RB-40…45)
+## Landed (RB-40…46)
 
 | RB | Що | Навіщо |
 |----|----|--------|
@@ -13,19 +13,18 @@
 | **43** | Write-then-translate: `fork_translation` + Studio ⇄ + ISBN у меті | рідна мова → окреме видання, ISBN per-edition |
 | **44** | Studio page-view: наскрізна нумерація книги (half-title = 1, футер з 2) | `.pgn`/`pvNo` як `interior_pdf` ±1; ←/→ через розділи |
 | **45** | Knuth–Liang hyphenation у `interior_pdf::wrap` (`hypher` uk+en) | перенос по складах з `-`, не різати слово по літерах |
+| **46** | FOGRA39 ICC drop-in (`REBOOK_ICC_CMYK` / `icc/*.icc`) + CMYK JPEG на X-1a | `/DestOutputProfile`; DeviceCMYK DCTDecode; ECI файл не в репо |
 
 Документи: [`CONCEPT.md`](./CONCEPT.md) · [`VULKAN_RESEARCH.md`](./VULKAN_RESEARCH.md).
 
 ## Наступна черга (логічний порядок для `agi`)
 
-1. **RB-46** — FOGRA39 ICC drop-in (`REBOOK_ICC_CMYK` уже читається, файл не
-   в репо) + CMYK JPEG passthrough на X-1a wrap.
-2. **RB-47** — eBook cover DPI ≥300 для print-art; EN OPF ISBN на живих книгах
+1. **RB-47** — eBook cover DPI ≥300 для print-art; EN OPF ISBN на живих книгах
    власника (відомі дірки з NEXT).
-3. **RB-48** — віртуальний стенд: ebook «листання» (CSS pages), не лише front;
+2. **RB-48** — віртуальний стенд: ebook «листання» (CSS pages), не лише front;
    paperback spread з recto/verso як у Studio V.
-4. **RB-49** — AI-переклад чернетки (env-gated `/api/ai`, не хмара за замовчуванням).
-5. **RB-50** — EPUBCheck-еквівалент v2 (зовнішні URL, script, ISBN per format).
+3. **RB-49** — AI-переклад чернетки (env-gated `/api/ai`, не хмара за замовчуванням).
+4. **RB-50** — EPUBCheck-еквівалент v2 (зовнішні URL, script, ISBN per format).
 
 Не брати Vulkan у цю чергу (див. research).
 

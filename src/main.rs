@@ -489,7 +489,7 @@ fn cover_template(args: &[String]) -> Result<String, String> {
         let opts = rust_book::coverpdf::WrapOpts {
             cmyk: as_cmyk,
             pdfx: as_cmyk,
-            icc: None,
+            icc: rust_book::icc::discover_cmyk_icc(),
         };
         let rep = rust_book::coverpdf::render_wrap_pdf_opts(
             &doc,
