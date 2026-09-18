@@ -12,6 +12,7 @@ zip = { version = "8.6", default-features = false, features = ["deflate"] }
 axum = "0.8"
 tokio-stream = { version = "0.1", features = ["sync"] }
 genpdf = "0.2"
+hypher = { version = "0.1", default-features = false, features = ["alloc", "english", "ukrainian"] }
 
 [dev-dependencies]
 tower = "0.5"

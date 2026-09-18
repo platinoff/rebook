@@ -86,8 +86,17 @@ fn run_w(font: &TtfFont, s: &str, size: f64) -> f64 {
     font.run_width_pt(s, size)
 }
 
-/// Greedy word wrap; a word wider than the measure is split by characters.
-pub fn wrap(font: &TtfFont, text: &str, size: f64, width: f64, para: i64) -> Vec<Flow> {
+/// Greedy word wrap with Knuth–Liang hyphenation (RB-45).
+/// A token wider than the measure is split on dictionary points, then
+/// characters, always with a visible `-`.
+pub fn wrap(
+    font: &TtfFont,
+    text: &str,
+    size: f64,
+    width: f64,
+    para: i64,
+    lang_en: bool,
+) -> Vec<Flow> {
     let sp = run_w(font, " ", size).max(size * 0.2);
     let mut out = Vec::new();
     let mut cur: Vec<String> = Vec::new();
@@ -103,49 +112,55 @@ pub fn wrap(font: &TtfFont, text: &str, size: f64, width: f64, para: i64) -> Vec
                 keep: false,
                 page_break: false,
             });
-            let _ = cur_w;
             cur.clear();
         }
         *cur_w = 0.0;
     };
-    for word in text.split_whitespace() {
-        let mut w = run_w(font, word, size);
-        if w > width {
-            // hard-split the monster word
-            push(&mut cur, &mut cur_w, &mut out);
-            let mut chunk = String::new();
-            let mut cw = 0.0;
-            for ch in word.chars() {
-                let cwid = run_w(font, ch.encode_utf8(&mut [0u8; 4]), size);
-                if cw + cwid > width && !chunk.is_empty() {
-                    out.push(Flow {
-                        words: vec![chunk.clone()],
-                        size,
-                        align: Align::Left,
-                        justify: false,
-                        para,
-                        keep: false,
-                        page_break: false,
-                    });
-                    chunk.clear();
-                    cw = 0.0;
-                }
-                chunk.push(ch);
-                cw += cwid;
-            }
-            if !chunk.is_empty() {
-                cur.push(chunk);
-                cur_w = cw;
-            }
+    let measure = |s: &str| run_w(font, s, size);
+    let mut pending: Option<String> = None;
+    let mut words = text.split_whitespace();
+    loop {
+        let word = match pending.take() {
+            Some(p) => p,
+            None => match words.next() {
+                Some(w) => w.to_string(),
+                None => break,
+            },
+        };
+        let w = measure(&word);
+        let space = if cur.is_empty() { 0.0 } else { sp };
+        let remain = width - cur_w - space;
+        if w <= remain + 1e-6 {
+            cur.push(word);
+            cur_w += space + w;
             continue;
         }
-        w += if cur.is_empty() { 0.0 } else { sp };
-        if cur_w + w > width + 1e-6 {
+        if let Some((left, right)) =
+            crate::hyphen::split_for_width(&word, remain.max(0.0), measure, lang_en)
+        {
+            let lw = measure(&left);
+            cur.push(left);
+            cur_w += space + lw;
             push(&mut cur, &mut cur_w, &mut out);
-            w = run_w(font, word, size);
+            pending = Some(right);
+            continue;
         }
-        cur.push(word.to_string());
-        cur_w += w;
+        if !cur.is_empty() {
+            push(&mut cur, &mut cur_w, &mut out);
+            pending = Some(word);
+            continue;
+        }
+        // empty line: word still wider than the measure
+        if let Some((left, right)) = crate::hyphen::split_for_width(&word, width, measure, lang_en)
+            .or_else(|| crate::hyphen::hard_split(&word, width, measure))
+        {
+            cur.push(left);
+            push(&mut cur, &mut cur_w, &mut out);
+            pending = Some(right);
+            continue;
+        }
+        cur.push(word);
+        cur_w = w;
     }
     push(&mut cur, &mut cur_w, &mut out);
     if let Some(last) = out.last_mut()
@@ -343,7 +358,7 @@ pub fn flows_for(
                     fl.push(Flow::blank());
                 }
                 _ => {
-                    let lines = wrap(font, &text, BODY, width, para);
+                    let lines = wrap(font, &text, BODY, width, para, lang_en);
                     para += 1;
                     fl.extend(lines);
                 }
@@ -393,6 +408,7 @@ pub fn render(
         eat(&d.to_string(), &mut used);
     }
     eat(" ", &mut used);
+    eat(crate::hyphen::HYPHEN, &mut used);
 
     let subset = font.subset(&used)?;
     let maxg = *used.iter().max().unwrap_or(&0) as usize;
@@ -525,11 +541,17 @@ mod tests {
         let Some(tf) = font() else { return };
         let width = 300.0;
         let text = "слово ".repeat(80);
-        let lines = wrap(&tf, &text, BODY, width, 0);
+        let lines = wrap(&tf, &text, BODY, width, 0, false);
         assert!(lines.len() > 3);
         for l in &lines[..lines.len() - 1] {
-            assert!(l.justify, "interior lines must stretch");
-            assert!(l.words.len() > 1);
+            assert!(
+                l.justify || l.words.iter().any(|w| w.ends_with('-')),
+                "interior lines must stretch or end on a hyphen"
+            );
+            assert!(
+                l.words.len() > 1 || l.words.iter().any(|w| w.ends_with('-')),
+                "a full line is several words or a hyphenated fragment"
+            );
             let w: f64 = l
                 .words
                 .iter()
@@ -542,11 +564,37 @@ mod tests {
     }
 
     #[test]
+    fn wrap_hyphenates_long_english_word() {
+        let Some(tf) = font() else { return };
+        let w = tf.run_width_pt("hyphenation", BODY);
+        let width = w * 0.62;
+        let lines = wrap(&tf, "hyphenation", BODY, width, 0, true);
+        let joined: String = lines.iter().flat_map(|l| l.words.iter()).cloned().collect();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.words.iter().any(|x| x.ends_with('-'))),
+            "expected a hyphen break, got {:?}",
+            lines.iter().map(|l| &l.words).collect::<Vec<_>>()
+        );
+        assert_eq!(joined.replace('-', ""), "hyphenation");
+        for l in &lines {
+            let lw: f64 = l
+                .words
+                .iter()
+                .map(|x| tf.run_width_pt(x, BODY))
+                .sum::<f64>()
+                + tf.run_width_pt(" ", BODY) * l.words.len().saturating_sub(1) as f64;
+            assert!(lw <= width + 0.5, "overflow {lw} > {width}");
+        }
+    }
+
+    #[test]
     fn widow_orphan_keeps_two_each_side() {
         let tf = font();
         let width = 300.0;
         let lines = match &tf {
-            Some(f) => wrap(f, &"w ".repeat(400), BODY, width, 0),
+            Some(f) => wrap(f, &"w ".repeat(400), BODY, width, 0, true),
             None => (0..40)
                 .map(|_| Flow {
                     words: vec!["word".into()],

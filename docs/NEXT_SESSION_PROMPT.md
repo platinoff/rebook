@@ -1,15 +1,16 @@
 # Rebook — Next Session Prompt
 
 1. **Owner product pick: rebook.** Window `S:/rust/rebook`. `agi` = keep-live +
-   tickets then RB-45.
-2. **State: RB-40…44 landed** (cover sniff, OPF ISBN, GSV nav chrome,
-   write-then-translate, Studio book-wide page numbers). Prior RB-1…RB-38. **110 tests**, clippy 0.
+   tickets then RB-46.
+2. **State: RB-40…45 landed** (cover sniff, OPF ISBN, GSV nav chrome,
+   write-then-translate, Studio book-wide page numbers, interior hyphenation).
+   Prior RB-1…RB-38. **117 tests**, clippy 0.
    App = portable web on **127.0.0.1:8090**. Restart after code change:
    `bash /s/rust/rebook/scripts/rebuild-restart.sh` (`include_str!` UI).
 3. **Concept:** three KDP types (ebook / paperback / hardcover) + `/view3d`.
    Author writes in source language, forks translation. Vulkan is **out**.
-4. **Next band = RB-45:** hyphenation in interior (rustybuzz already
-   transitive). Then RB-46 FOGRA39 ICC, RB-47 live-book cover DPI, RB-48 ebook flip.
+4. **Next band = RB-46:** FOGRA39 ICC drop-in (`REBOOK_ICC_CMYK`) + CMYK
+   JPEG passthrough on X-1a wrap. Then RB-47 live-book cover DPI, RB-48 ebook flip.
 5. **Known live data:** EN ebook cover was 125 DPI (needs ≥300 print);
    re-export print art after ISBN-in-OPF; HC pages still ESTIMATED for `en/`.
 6. Keep green: `cargo fmt -- --check` → `cargo clippy --all-targets` →

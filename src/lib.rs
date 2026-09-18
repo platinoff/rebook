@@ -11,6 +11,7 @@ pub mod coverdoc;
 pub mod coverpdf;
 pub mod drafts;
 pub mod epub;
+pub mod hyphen;
 pub mod interior;
 pub mod interior_pdf;
 pub mod kdp;
