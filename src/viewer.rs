@@ -779,6 +779,31 @@ fn render_index(epub: &Epub, book: &Book, book_id: &str) -> String {
     )
 }
 
+/// One chapter of interior HTML for the virtual stand (RB-48).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InteriorChapter {
+    pub number: u32,
+    pub title: String,
+    pub html: String,
+}
+
+/// Chapter bodies from the EPUB, in spine/`book.json` order.
+pub fn interior_chapters(epub: &Epub, book: &Book) -> Vec<InteriorChapter> {
+    book.chapters
+        .iter()
+        .map(|meta| {
+            let path = format!("OEBPS/chapter-{:02}.xhtml", meta.number);
+            let raw = epub.text(&path).unwrap_or_default();
+            let html = extract_body(&raw).unwrap_or(raw);
+            InteriorChapter {
+                number: meta.number,
+                title: meta.title.clone(),
+                html,
+            }
+        })
+        .collect()
+}
+
 /// Extract the inner `<body>` content of an XHTML page.
 fn extract_body(xhtml: &str) -> Option<String> {
     let low = xhtml.to_ascii_lowercase();
@@ -1486,6 +1511,15 @@ mod tests {
     fn extract_body_returns_inner_content() {
         let body = extract_body("<html><body><h1>Хай</h1><p>текст</p></body></html>").unwrap();
         assert_eq!(body, "<h1>Хай</h1><p>текст</p>");
+    }
+
+    #[test]
+    fn interior_chapters_uses_body_inner_html() {
+        let ch = interior_chapters(&build_test_epub(), &test_book());
+        assert_eq!(ch.len(), 1);
+        assert_eq!(ch[0].number, 1);
+        assert!(ch[0].html.contains("<h1>Перша</h1>"));
+        assert!(!ch[0].html.to_ascii_lowercase().contains("<body"));
     }
 
     #[test]

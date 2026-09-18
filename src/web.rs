@@ -97,6 +97,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/books", get(api_books))
         .route("/api/books/{id}/preflight", get(api_book_preflight))
+        .route("/api/books/{id}/interior", get(api_book_interior))
         .route("/api/cover-template", get(api_cover_template))
         .route("/api/drafts", get(api_drafts_list).post(api_drafts_create))
         .route(
@@ -201,6 +202,28 @@ async fn api_book_preflight(
     let pages: u32 = q.get("pages").and_then(|s| s.parse().ok()).unwrap_or(300);
     let pf = crate::preflight::run(&epub, &b.book, mode, trim, paper, pages);
     match serde_json::to_string(&pf) {
+        Ok(json) => text_response(StatusCode::OK, "application/json; charset=utf-8", json),
+        Err(e) => draft_err(e.to_string()),
+    }
+}
+
+/// RB-48: chapter HTML for CSS page-flip / recto-verso on `/view3d`.
+async fn api_book_interior(
+    State(st): State<Arc<AppState>>,
+    AxPath((id,)): AxPath<(String,)>,
+) -> Response {
+    let Some(b) = st.snapshot().into_iter().find(|b| b.id == id) else {
+        return (StatusCode::NOT_FOUND, "no such book").into_response();
+    };
+    let chapters = crate::viewer::interior_chapters(&b.epub, &b.book);
+    let body = serde_json::json!({
+        "id": b.id,
+        "title": b.book.title,
+        "author": b.book.author,
+        "language": b.book.language,
+        "chapters": chapters,
+    });
+    match serde_json::to_string(&body) {
         Ok(json) => text_response(StatusCode::OK, "application/json; charset=utf-8", json),
         Err(e) => draft_err(e.to_string()),
     }
@@ -858,6 +881,13 @@ mod tests {
         let (s, b) = get(router(fixture_state()), "/test/chapter/1").await;
         assert_eq!(s, StatusCode::OK);
         assert!(b.contains("<h1>Y</h1>"));
+        let (s, b) = get(router(fixture_state()), "/api/books/test/interior").await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(b.contains("\"id\":\"test\""));
+        assert!(b.contains("<h1>Y</h1>"));
+        assert!(b.contains("\"number\":1"));
+        let (s, _) = get(router(fixture_state()), "/api/books/nope/interior").await;
+        assert_eq!(s, StatusCode::NOT_FOUND);
         let (s, _) = get(router(fixture_state()), "/nope").await;
         assert_eq!(s, StatusCode::NOT_FOUND);
     }
@@ -1195,6 +1225,8 @@ mod tests {
         assert_eq!(s, StatusCode::OK);
         assert!(b.contains("rb-nav"));
         assert!(b.contains("id=\"bookSel\""));
+        assert!(b.contains("id=\"leaf\""));
+        assert!(b.contains("id=\"leafSpread\""));
         let (s, b) = get(router(st.clone()), "/studio").await;
         assert_eq!(s, StatusCode::OK);
         assert!(b.contains("rb-nav"));

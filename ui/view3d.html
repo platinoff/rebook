@@ -24,13 +24,29 @@
   #stage.dragging{cursor:grabbing}
   #stage:focus-visible{outline:2px solid #7aa2f7;outline-offset:-2px}
  #book3d{position:absolute;left:50%;top:50%;transform-style:preserve-3d}
- #hint{position:absolute;bottom:.6em;width:100%;text-align:center;color:#5f6775;margin:0;font-size:.85em}
+ #hint{position:absolute;bottom:.6em;width:100%;text-align:center;color:#5f6775;margin:0;font-size:.85em;z-index:3;pointer-events:none}
  #warns{background:#161922;border:1px solid #2f3542;border-radius:12px;padding:.8em 1em;height:fit-content;max-height:78vh;overflow:auto}
  #warns h3{margin:.1em 0 .6em;font-size:.95em;color:#e6e6e6}
  #warns .w{display:flex;gap:.5em;padding:.35em 0;border-top:1px solid #212635;font-size:.85em;line-height:1.4}
  #warns .ok{color:#3fb950} #warns .bad{color:#f85149}
  .ovl{position:absolute;inset:0;pointer-events:none}
  .faceImg{position:absolute;inset:0;width:100%;height:100%;object-fit:fill}
+ #leaf{position:absolute;inset:0;display:none;align-items:center;justify-content:center;z-index:2;pointer-events:none}
+ #leaf.on{display:flex;pointer-events:auto;cursor:default}
+ .spread{display:flex;align-items:stretch;gap:0;transform-origin:center center}
+ .leafpage{position:relative;background:#f4efe4;color:#1b1b1b;overflow:hidden;box-shadow:0 18px 50px #0007;font-family:Georgia,'EB Garamond',serif}
+ .leafpage.verso{border-radius:3px 0 0 3px;box-shadow:inset -10px 0 16px #0001,0 18px 50px #0007}
+ .leafpage.recto{border-radius:0 3px 3px 0;box-shadow:inset 10px 0 16px #0001,0 18px 50px #0007}
+ .leafpage.single{border-radius:3px;animation:flipin .32s ease}
+ .leafspine{width:10px;background:linear-gradient(90deg,#c9c2b4,#8a8376 45%,#c9c2b4);box-shadow:inset 0 0 8px #0004}
+ .leafflow{position:absolute;line-height:1.35;overflow:hidden}
+ .leafflow h1,.leafflow h2{font-size:1.15em;margin:.4em 0 .3em}
+ .leafflow p{margin:.45em 0;text-align:justify}
+ .leafflow .muted{color:#6b6458;font-size:.85em}
+ .leafno{position:absolute;bottom:7px;left:0;right:0;text-align:center;font:11px/1 system-ui;color:#6b6458}
+ .leafno.verso{text-align:left;padding-left:12px}
+ .leafno.recto{text-align:right;padding-right:12px}
+ @keyframes flipin{from{transform:rotateY(-16deg);opacity:.55}to{transform:none;opacity:1}}
 </style>
 </head>
 <body>
@@ -39,15 +55,20 @@
  <div>
   <div class="bar">
    <label><span data-uk="📚 Книга (EPUB із полиці)" data-en="📚 Book (shelf EPUB)">📚 Книга (EPUB із полиці)</span><select id="bookSel" style="min-width:15em"><option>—</option></select></label>
-    <label><span data-uk="Формат" data-en="Format">Формат</span><select id="fmt"><option value="hc" data-uk="Hardcover (case)" data-en="Hardcover (case)">Hardcover (case)</option><option value="dj" data-uk="Dust jacket (Ingram)" data-en="Dust jacket (Ingram)">Dust jacket (Ingram)</option><option value="pb" data-uk="Paperback" data-en="Paperback">Paperback</option><option value="ebook" data-uk="eBook front" data-en="eBook front">eBook front</option></select></label>
+    <label><span data-uk="Формат" data-en="Format">Формат</span><select id="fmt"><option value="hc" data-uk="Hardcover (case)" data-en="Hardcover (case)">Hardcover (case)</option><option value="dj" data-uk="Dust jacket (Ingram)" data-en="Dust jacket (Ingram)">Dust jacket (Ingram)</option><option value="pb" data-uk="Paperback" data-en="Paperback">Paperback</option><option value="ebook" data-uk="eBook сторінки" data-en="eBook pages">eBook сторінки</option></select></label>
    <label><span data-uk="Trim" data-en="Trim">Trim</span><select id="trim"></select></label>
    <label><span data-uk="Сторінки" data-en="Pages">Сторінки</span><input id="pages" type="number" value="300" min="24" max="828" step="2" style="width:7em"/></label>
    <label style="gap:0"><input id="guides" type="checkbox" checked style="width:auto"/> <span data-uk="накладки KDP" data-en="KDP overlays">накладки KDP</span></label>
+   <label style="gap:0" title="paperback/hardcover: verso left, recto right"><input id="leafSpread" type="checkbox" style="width:auto"/> <span data-uk="spread (verso/recto)" data-en="spread (verso/recto)">spread (verso/recto)</span></label>
+   <button class="btn ghost" id="leafPrev" type="button" data-uk="← стор." data-en="← page">← стор.</button>
+   <label><span data-uk="аркуш" data-en="leaf">аркуш</span><input id="leafNo" type="number" value="1" min="1" step="1" style="width:5em"/></label>
+   <span id="leafOf" style="align-self:center;color:#9aa0ac">/ 1</span>
+   <button class="btn ghost" id="leafNext" type="button" data-uk="стор. →" data-en="page →">стор. →</button>
    <button class="btn" id="go" data-uk="🖼 Показати на стенді" data-en="🖼 Show on stand">🖼 Показати на стенді</button>
    <button class="btn ghost" id="reset" data-uk="скинути кут" data-en="reset angle">скинути кут</button>
    <span id="readout"></span>
   </div>
-  <div id="stage"><div id="book3d"></div><p id="hint">тягни / палець — обертати · колесо / pinch — зум · Tab на сцену: ←→↑↓ кут, PgUp/PgDn зум, 0 — скинути · галочка «накладки» вмикає bleed/safe/fold-гади</p></div>
+  <div id="stage"><div id="book3d"></div><div id="leaf"></div><p id="hint">тягни / палець — обертати · ←/→ листати · колесо / pinch — зум · Tab на сцену: PgUp/PgDn зум, 0 — скинути · галочка «накладки» вмикає bleed/safe/fold-гади</p></div>
  </div>
  <aside id="warns"><h3 data-uk="⚠ Preflight" data-en="⚠ Preflight">⚠ Preflight</h3><div class="w"><span class="muted" data-uk="обери книгу — звіт KDP-перевірок з'явиться тут" data-en="pick a book — the KDP report appears here">обери книгу — звіт KDP-перевірок з'явиться тут</span></div></aside>
 </div>
@@ -56,28 +77,43 @@ const $=s=>document.querySelector(s);
 const TRIMS={pb:["5x8","5.06x7.81","5.25x8","5.5x8.5","6x9","6.14x9.21","6.69x9.61","7x10","7.5x9.25","8x10","8.25x8.25","8.5x11"],
  hc:["5.5x8.5","6x9","6.14x9.21","7x10","8.25x11"],dj:["5x8","5.5x8.5","6x9","7x10"]};
 let pf=null,rx=-14,ry=-28,s3=40,books=[],djD=null;
+let interior=null,leafPage=1,leafTotal=1,leafHtml='',textPages=1;
+const PAD=1;
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 async function boot(){
  try{books=await (await fetch('/api/books')).json();}catch(e){books=[];}
  const pre=new URLSearchParams(location.search).get('book');
  $('#bookSel').innerHTML=books.length?books.map(b=>`<option value="${b.id}">${esc(b.title)} · ${b.language} · ${b.chapters} р.</option>`).join(''):'<option value="">— немає книг на полиці —</option>';
  if(books.length){const b=books.find(x=>x.id===pre)||books[0];$('#bookSel').value=b.id;}
- fillTrims();go();
+ fillTrims();syncSpreadDefault();go();
 }
 function fillTrims(){const v=$('#fmt').value;const m=v==='hc'||v==='dj'?v:'pb';const cur=$('#trim').value;
  $('#trim').innerHTML=TRIMS[m].map(t=>'<option'+(t===cur?' selected':(t==='6x9'&&TRIMS[m].includes('6x9')?' selected':''))+'>'+t+'</option>').join('');}
-$('#fmt').onchange=()=>{fillTrims();go();};
+function syncSpreadDefault(){
+ const f=$('#fmt').value;
+ $('#leafSpread').disabled=f==='ebook'||f==='dj';
+ if(f==='pb'||f==='hc') $('#leafSpread').checked=true;
+ if(f==='ebook'||f==='dj') $('#leafSpread').checked=false;
+ leafPage=1;
+}
+$('#fmt').onchange=()=>{fillTrims();syncSpreadDefault();go();};
 $('#bookSel').onchange=go;$('#trim').onchange=go;$('#pages').onchange=go;$('#guides').onchange=()=>stage();
 $('#go').onclick=go;
 $('#reset').onclick=()=>{rx=-14;ry=-28;stage();};
+$('#leafPrev').onclick=()=>leafGo(-1);
+$('#leafNext').onclick=()=>leafGo(1);
+$('#leafNo').onchange=()=>leafJump(+$('#leafNo').value||1);
+$('#leafSpread').onchange=()=>stage();
 async function go(){
  const id=$('#bookSel').value;let mode=$('#fmt').value;
  if(!id){$('#readout').textContent='немає книг';return;}
- djD=null;
+ djD=null;interior=null;
  const geomMode=mode==='dj'?'hc':mode;
  const p=new URLSearchParams({mode:geomMode,trim:$('#trim').value,pages:$('#pages').value||300,paper:'white'});
  try{const r=await fetch(`/api/books/${id}/preflight?`+p);pf=await r.json();if(!r.ok)throw new Error(pf.detail||r.status);}catch(e){$('#readout').textContent='preflight err';return;}
  if(mode==='dj'){try{const r2=await fetch(`/api/cover/dims?`+new URLSearchParams({mode:'dj',trim:$('#trim').value,pages:$('#pages').value||300,paper:'white'}));djD=await r2.json();if(!r2.ok)djD=null;}catch(e){djD=null;}}
+ try{interior=await (await fetch('/api/books/'+encodeURIComponent(id)+'/interior')).json();}catch(e){interior={chapters:[]};}
+ measureLeaf();
  const nOK=(pf.warnings||[]).filter(w=>!w.ok).length;
  $('#readout').textContent=(mode==='hc'?'hardcover · ':mode==='dj'?'dust jacket · ':mode==='pb'?'paperback · ':'ebook · ')+(djD?`wrap ${djD.wrap_w_in.toFixed(2)}×${djD.wrap_h_in.toFixed(2)}″ · `:'')+'spine '+pf.spine_in.toFixed(4)+'″ · '+(nOK?nOK+' ⚠ увага':'усе ✓');
  renderWarns();s3=Math.min(60,Math.floor(300/pf.trim_h_in));stage();
@@ -86,7 +122,7 @@ function renderWarns(){const w=$('#warns');
  w.innerHTML='<h3>⚠ Preflight ('+(pf.warnings.filter(x=>!x.ok).length)+')</h3>'+
  pf.warnings.map(x=>`<div class="w"><span class="${x.ok?'ok':'bad'}">${x.ok?'✓':'✗'}</span><span>${esc(x.detail)}</span></div>`).join('');}
 function guidesSVG(wpx,hpx,trimW,trimH){
- const s=300; // px per inch at scale s3 handled by caller: pass inches→px already scaled
+ const s=300;
  const bpx=(0.125*s),spx=(0.25*s);
  return `<svg class="ovl" viewBox="0 0 ${wpx} ${hpx}" preserveAspectRatio="none">
   <rect x="${bpx}" y="${bpx}" width="${wpx-2*bpx}" height="${hpx-2*bpx}" fill="none" stroke="#e0a03080" stroke-width="2" stroke-dasharray="10,8"/>
@@ -98,6 +134,107 @@ function face(w,h,bg,inner,tf){return '<div style="position:absolute;left:50%;to
 function coverInner(w,h){
  if(pf.cover&&pf.cover.data_uri) return '<img class="faceImg" src="'+pf.cover.data_uri+'" alt="cover"/>';
  return '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;text-align:center;padding:1em"><div><div style="font-size:'+Math.max(12,Math.min(38,s3*1.0))+'px;font-weight:700">'+esc(pf.title)+'</div><div style="margin-top:.6em;opacity:.85;font-size:'+Math.max(10,s3*.5)+'px">'+esc(pf.author)+'</div></div></div>';}
+function leafMetrics(){
+ const dpi=96,fs=12*96/72;
+ const w=(pf&&pf.trim_w_in||6)*dpi,h=(pf&&pf.trim_h_in||9)*dpi;
+ const margin=(Math.max(0.5,0.375)+0.25)*dpi;
+ return {pw:w,ph:h,margin:Math.round(margin),fs:Math.round(fs),cw:Math.round(w-2*margin),ch:Math.round(h-2*margin)};
+}
+function leafAllHtml(){
+ const lang=(interior&&interior.language)||(pf&&pf.language)||'uk';
+ const cw=String(lang).toLowerCase().startsWith('en')?'Chapter':'Розділ';
+ return (interior&&interior.chapters||[]).map(c=>`<p class="muted">${cw} ${c.number}. ${esc(c.title)}</p>${c.html}`).join('<hr/>');
+}
+function measureLeaf(){
+ leafHtml=leafAllHtml()||'<p>—</p>';
+ const m=leafMetrics();
+ let calc=$('#pgcalc');
+ if(!calc){calc=document.createElement('div');calc.id='pgcalc';document.body.appendChild(calc);}
+ calc.style.cssText=`position:fixed;left:-99999px;top:0;visibility:hidden;width:${m.cw}px;font-size:${m.fs}px;line-height:1.35;font-family:Georgia,serif`;
+ calc.innerHTML=leafHtml;
+ textPages=Math.max(1,Math.ceil((calc.scrollHeight||m.ch)/m.ch));
+ leafTotal=PAD+textPages;
+ leafPage=Math.max(1,Math.min(leafPage,leafTotal));
+}
+function pagingActive(){
+ const f=$('#fmt').value;
+ if(f==='dj') return false;
+ if(f==='ebook') return true;
+ return $('#leafSpread').checked;
+}
+function leafGo(d){leafJump(leafPage+d);}
+function leafJump(n){
+ n=Math.max(1,Math.min(leafTotal||1,n|0));
+ leafPage=n;stage();
+}
+function makeTextPage(local, side){
+ const m=leafMetrics();
+ local=Math.max(1, Math.min(textPages, local|0));
+ const v=document.createElement('div');
+ v.className='leafpage'+(side?' '+side:' single');
+ v.style.cssText=`width:${m.pw}px;height:${m.ph}px`;
+ const inner=document.createElement('div');
+ inner.className='leafflow';
+ inner.style.cssText=`left:${m.margin-(local-1)*m.cw}px;top:${m.margin}px;width:${m.cw*textPages}px;height:${m.ch}px;font-size:${m.fs}px`;
+ inner.innerHTML=leafHtml;
+ inner.setAttribute('aria-hidden','true');
+ v.appendChild(inner);
+ const g=document.createElement('div');
+ g.className='leafno'+(side?' '+side:'');
+ g.textContent=String(PAD+local);
+ v.appendChild(g);
+ v.setAttribute('aria-label', (side||'page')+' '+(PAD+local));
+ return v;
+}
+function makeHalfTitle(side){
+ const m=leafMetrics();
+ const v=document.createElement('div');
+ v.className='leafpage'+(side?' '+side:' single');
+ v.style.cssText=`width:${m.pw}px;height:${m.ph}px;display:flex;align-items:center;justify-content:center;text-align:center`;
+ v.innerHTML=`<div><div style="font-size:${Math.round(m.fs*2.1)}px">${esc((pf&&pf.title)||'')}</div><div class="muted" style="margin-top:1em">${esc((pf&&pf.author)||'')}</div></div>`;
+ v.setAttribute('aria-label', (side||'page')+' 1');
+ return v;
+}
+function renderLeaf(){
+ const box=$('#leaf');
+ const fmt=$('#fmt').value;
+ const spread=$('#leafSpread').checked && fmt!=='ebook' && fmt!=='dj';
+ $('#leafNo').max=leafTotal;$('#leafNo').value=leafPage;$('#leafOf').textContent='/ '+leafTotal;
+ const showCover=fmt==='ebook' && leafPage<=1;
+ const showClosed=fmt!=='ebook' && !spread;
+ if(showCover||showClosed||fmt==='dj'){
+  box.classList.remove('on');box.innerHTML='';
+  if($('#book3d')) $('#book3d').style.visibility='';
+  return;
+ }
+ $('#book3d').style.visibility='hidden';
+ box.classList.add('on');box.innerHTML='';
+ const m=leafMetrics();
+ const wrap=document.createElement('div');
+ wrap.className='spread';
+ const scale=Math.min((box.clientWidth-28)/(m.pw*(spread?2:1)+ (spread?10:0)), (box.clientHeight-36)/m.ph, 1);
+ wrap.style.transform='scale('+scale+')';
+ if(spread){
+  const leftBp=leafPage%2===0?leafPage:leafPage-1;
+  const rightBp=leftBp+1;
+  if(leftBp>=1){
+   if(leftBp===1) wrap.appendChild(makeHalfTitle('verso'));
+   else wrap.appendChild(makeTextPage(leftBp-PAD,'verso'));
+  } else {
+   const blank=document.createElement('div');blank.className='leafpage verso';blank.style.cssText=`width:${m.pw}px;height:${m.ph}px;background:#efe9db`;
+   wrap.appendChild(blank);
+  }
+  const sp=document.createElement('div');sp.className='leafspine';wrap.appendChild(sp);
+  if(rightBp<=leafTotal){
+   if(rightBp===1) wrap.appendChild(makeHalfTitle('recto'));
+   else wrap.appendChild(makeTextPage(rightBp-PAD,'recto'));
+  }
+ } else {
+  if(leafPage===1) wrap.appendChild(makeHalfTitle(''));
+  else wrap.appendChild(makeTextPage(leafPage-PAD,'single'));
+ }
+ box.appendChild(wrap);
+}
 function stage(){
  const b=$('#book3d');if(!pf){b.innerHTML='';return;}
  const g=$('#guides').checked;
@@ -105,7 +242,7 @@ function stage(){
  b.style.width=w+'px';b.style.height=h+'px';b.style.marginLeft=(-w/2)+'px';b.style.marginTop=(-h/2)+'px';
  const ov=g?guidesSVG(w,h,pf.trim_w_in,pf.trim_h_in):'';
  const front=face(w,h,'#1d2733',coverInner(w,h)+ov,'rotateY(0deg) translateZ('+(d/2)+'px)');
- if($('#fmt').value==='ebook'){$('#book3d').innerHTML=front;pose();return;}
+ if($('#fmt').value==='ebook'){$('#book3d').innerHTML=front;pose();renderLeaf();return;}
  const backTxt='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;opacity:.9"><div style="font-size:'+Math.max(10,s3*.5)+'px">'+esc(pf.author)+'</div><div style="margin-top:auto;margin-bottom:1em;font-size:10px;opacity:.5">автозаливка · перевір safe-зону</div></div>';
  const back=face(w,h,pf.back_color,backTxt+ov,'rotateY(180deg) translateZ('+(d/2)+'px)');
  const spineTxt='<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:'+Math.min(d*.6,Math.max(9,s3*.5))+'px;white-space:nowrap;overflow:hidden;max-height:90%">'+esc(pf.title)+' — '+esc(pf.author)+'</div></div>'+(g?'<svg class="ovl" viewBox="0 0 '+d+' '+h+'" preserveAspectRatio="none"><line x1="2" y1="0" x2="2" y2="'+h+'" stroke="#e0409a90" stroke-width="2" stroke-dasharray="8,6"/><line x1="'+(d-2)+'" y1="0" x2="'+(d-2)+'" y2="'+h+'" stroke="#e0409a90" stroke-width="2" stroke-dasharray="8,6"/></svg>':'');
@@ -128,15 +265,16 @@ function stage(){
     +face(flapW,hJ-2,paper,'','translate3d('+(wJ/2-flapW/2)+'px,0,'+(dJ/2-2)+'px) rotateY(180deg)')
     +face(flapW,hJ-2,paper,'','translate3d('+(wJ/2-flapW/2)+'px,0,'+(-dJ/2+2)+'px)');
   }
-  b.innerHTML=front+back+spine+head+tail+edge+dj;pose();}
+  b.innerHTML=front+back+spine+head+tail+edge+dj;pose();renderLeaf();}
 function pose(){$('#book3d').style.transform='rotateX('+rx+'deg) rotateY('+ry+'deg)';}
-/* RB-30: mouse + touchpad (ctrl+wheel/pinch) + keyboard (arrows/PgUp/PgDn/0) */
 (function(){const st=$('#stage');st.tabIndex=0;
  const pts=new Map();let drag=null,lastDist=0;
  st.addEventListener('pointerdown',e=>{st.focus();pts.set(e.pointerId,[e.clientX,e.clientY]);
+  if($('#leaf').classList.contains('on')) return;
   if(pts.size===1){drag=[e.clientX,e.clientY,ry,rx];st.classList.add('dragging');st.setPointerCapture(e.pointerId);}
   else if(pts.size===2){drag=null;st.classList.remove('dragging');const p=[...pts.values()];lastDist=Math.hypot(p[0][0]-p[1][0],p[0][1]-p[1][1]);}});
  st.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;pts.set(e.pointerId,[e.clientX,e.clientY]);
+  if($('#leaf').classList.contains('on')) return;
   if(pts.size>=2){const p=[...pts.values()];const d=Math.hypot(p[0][0]-p[1][0],p[0][1]-p[1][1]);
    if(lastDist&&d){s3=Math.max(14,Math.min(120,s3*d/lastDist));stage();}lastDist=d;return;}
   if(!drag)return;ry=drag[2]+(e.clientX-drag[0])*.45;rx=Math.max(-85,Math.min(85,drag[3]-(e.clientY-drag[1])*.35));pose();});
@@ -144,11 +282,18 @@ function pose(){$('#book3d').style.transform='rotateX('+rx+'deg) rotateY('+ry+'d
  addEventListener('pointerup',up);addEventListener('pointercancel',up);
  st.addEventListener('wheel',e=>{e.preventDefault();s3=Math.max(14,Math.min(120,s3*(e.deltaY<0?1.08:.93)));stage();},{passive:false});
  st.addEventListener('keydown',e=>{const k=e.key;
+  if(pagingActive()&&(k==='ArrowLeft'||k==='PageUp'||k==='ArrowRight'||k==='PageDown'||k==='Home'||k==='End')){
+   if(k==='ArrowLeft'||k==='PageUp') leafGo(-1);
+   else if(k==='ArrowRight'||k==='PageDown') leafGo(1);
+   else if(k==='Home') leafJump(1);
+   else leafJump(leafTotal);
+   e.preventDefault();return;
+  }
   if(k==='ArrowLeft'){ry-=6;pose();}else if(k==='ArrowRight'){ry+=6;pose();}
   else if(k==='ArrowUp'){rx=Math.max(-85,rx-5);pose();}else if(k==='ArrowDown'){rx=Math.min(85,rx+5);pose();}
   else if(k==='PageUp'||k==='+'||k==='='){s3=Math.min(120,s3*1.1);stage();}
   else if(k==='PageDown'||k==='-'||k==='_'){s3=Math.max(14,s3/1.1);stage();}
-  else if(k==='0'||k==='Home'){rx=-14;ry=-28;if(pf)s3=Math.min(60,Math.floor(300/pf.trim_h_in));stage();}
+  else if(k==='0'){rx=-14;ry=-28;if(pf)s3=Math.min(60,Math.floor(300/pf.trim_h_in));stage();}
   else return;e.preventDefault();});
 })();
 boot();
