@@ -22,6 +22,9 @@ AZW3/KFX.
 
 Dust jacket (`dj`) лишається **Ingram**-ціллю, не KDP hardcover.
 
+**Книжка-розмальовка** — це paperback SKU, не четвертий тип: trim 8.5×11, B&W
+на білому, без bleed, SVG-плейти. Канон: [`COLORING_CARS.md`](./COLORING_CARS.md).
+
 ## Пиши рідною → переклади
 
 1. Studio: нова чернетка, `language=uk` (або навпаки).

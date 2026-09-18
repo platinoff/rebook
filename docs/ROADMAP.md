@@ -1,9 +1,9 @@
 # Rebook — roadmap (після RB-38)
 
 Тікети живуть на **GSV board**, product `rebook` (`RB-*`). Цей файл — канон
-черги. **RB-40…49 landed**. Next = RB-50.
+черги. **RB-40…50 landed (50 = coloring canon)**. Next = RB-51 (SVG plates).
 
-## Landed (RB-40…49)
+## Landed (RB-40…50)
 
 | RB | Що | Навіщо |
 |----|----|--------|
@@ -17,12 +17,18 @@
 | **47** | Print-art ≥300 DPI (`print_art_ok`); EN `opf:isbn` з `book.json` | eBook 1600×2560 ≠ 6×9 print; wrap не тягне 125 DPI JPEG |
 | **48** | `/view3d` CSS pages + paperback spread (verso/recto) | eBook не лише front; розгортка як Studio V |
 | **49** | AI `translate` + GSV box fullscreen (□ / Esc) | ⇄ fork, потім `/api/ai` якщо `REBOOK_AI_ENDPOINT`; бокси стенду/cover/studio/products |
+| **50** | Coloring canon: Classic American Iron (`coloring.rs` + roster) | 8.5×11 B&W no-bleed; 24 тачки; plates 1/2/3; verso = марка·модель·рік |
 
-Документи: [`CONCEPT.md`](./CONCEPT.md) · [`VULKAN_RESEARCH.md`](./VULKAN_RESEARCH.md).
+Документи: [`CONCEPT.md`](./CONCEPT.md) · [`VULKAN_RESEARCH.md`](./VULKAN_RESEARCH.md) · [`COLORING_CARS.md`](./COLORING_CARS.md).
 
 ## Наступна черга (логічний порядок для `agi`)
 
-1. **RB-50** — EPUBCheck-еквівалент v2 (зовнішні URL, script, ISBN per format).
+1. **RB-51** — SVG plate kit (stroke ≥0.75 pt, safe box, custom mark, captions).
+2. **RB-52** — Studio draft `uk` + SVG includes; ⇄ `en`.
+3. **RB-53** — paperback wrap (color cover, barcode, spine text ok at 102 p).
+4. **RB-54** — `/view3d` 8.5×11 spread proof.
+5. **RB-55** — `print/check` + KDP checklist before publish.
+6. **RB-56** — EPUBCheck-еквівалент v2 (зовнішні URL, script, ISBN per format).
 
 Не брати Vulkan у цю чергу (див. research).
 

@@ -6,17 +6,15 @@
   100% Rust, MIT. Docs: [`README.md`](../README.md) ·
   [`PRODUCTION_GUIDE.md`](../PRODUCTION_GUIDE.md) ·
   [`CONCEPT.md`](./CONCEPT.md) · [`ROADMAP.md`](./ROADMAP.md) ·
-  [`VULKAN_RESEARCH.md`](./VULKAN_RESEARCH.md);
+  [`VULKAN_RESEARCH.md`](./VULKAN_RESEARCH.md) ·
+  [`COLORING_CARS.md`](./COLORING_CARS.md);
   authoring rules live in `.cursor/rules/epub-kdp-guide.mdc`.
-- **Book sources**: `chapters/` + `book.json` (sample book); build:
-  `cargo run -- build-epub`.
-- **Latest work**: **RB-40…49 landed** (this `agi` drain). Cover magic-byte sniff;
-  OPF `urn:isbn:` + kdp.rs no AZW3; GSV-style nav `data-tip` + uk/en chrome;
-  write-then-translate fork; Studio book-wide page numbers; Knuth–Liang
-  hyphenation; FOGRA39 ICC drop-in; print-art DPI gate; EN `opf:isbn`;
-  `/view3d` CSS page-flip + paperback verso/recto spread
-  (`GET /api/books/{id}/interior`); AI `translate` (env-gated `/api/ai`) +
-  exclusive box fullscreen (□ / Esc) on stand/cover/studio/products.
+- **Book sources**: `chapters/` + `book.json` (sample book); coloring paperback
+  roster `samples/coloring-cars.json`; build: `cargo run -- build-epub`.
+- **Latest work**: **RB-40…50 landed**. RB-50 = Classic American Iron coloring
+  canon (8.5×11 B&W no-bleed, 24 cars, variable plates, verso captions).
+  Prior: cover sniff, OPF ISBN, GSV nav, write-then-translate, Studio pages,
+  hyphenation, FOGRA39, print-art DPI, view3d CSS pages, AI translate + box FS.
   Three KDP types = ebook / paperback / hardcover. Gate: fmt · clippy 0 ·
   **cargo test**.
 - **Live server**: `127.0.0.1:8090` — UI is `include_str!`-embedded, so a rebuild

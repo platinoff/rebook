@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none" stroke="#000" stroke-width="3" stroke-linejoin="miter">
+ <!-- custom mark: garage crest, colorable, e0.75pt at 8.5×11 -->
+ <polygon points="120,18 210,58 210,150 120,222 30,150 30,58"/>
+ <polygon points="120,48 178,78 178,142 120,186 62,142 62,78"/>
+ <rect x="96" y="100" width="48" height="36"/>
+ <path d="M84 118 H156 M120 100 V136"/>
+ <circle cx="120" cy="78" r="10"/>
+ <path d="M70 168 Q120 198 170 168"/>
+</svg>

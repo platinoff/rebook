@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 pub mod ai;
 pub mod barcode;
+pub mod coloring;
 pub mod cover;
 pub mod coverdoc;
 pub mod coverpdf;
