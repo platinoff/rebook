@@ -65,7 +65,8 @@ plus the garage crest [`coloring-mark.svg`](../samples/coloring-mark.svg)
 
 1. **RB-50** (this file + `coloring.rs`) — research + roster math.
 2. **RB-51** (`coloring_svg.rs` + `cargo run -- coloring-plates`) — SVG kit.
-3. **RB-52** — Studio draft `uk` with SVG includes; ⇄ `en`.
+3. **RB-52** (`coloring_draft.rs` + `cargo run -- coloring-draft`) — Studio `uk`
+   + SVG includes; ⇄ `en`.
 4. **RB-53** — paperback wrap (color cover, barcode, spine text ok at 104 p).
 5. **RB-54** — `/view3d` 8.5×11 spread proof.
 6. **RB-55** — `print/check` + KDP checklist **before** publish.

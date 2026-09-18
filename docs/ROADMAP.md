@@ -1,9 +1,9 @@
 # Rebook — roadmap (після RB-38)
 
 Тікети живуть на **GSV board**, product `rebook` (`RB-*`). Цей файл — канон
-черги. **RB-40…51 landed**. Next = RB-52 (Studio draft).
+черги. **RB-40…52 landed**. Next = RB-53 (paperback wrap).
 
-## Landed (RB-40…51)
+## Landed (RB-40…52)
 
 | RB | Що | Навіщо |
 |----|----|--------|
@@ -19,16 +19,16 @@
 | **49** | AI `translate` + GSV box fullscreen (□ / Esc) | ⇄ fork, потім `/api/ai` якщо `REBOOK_AI_ENDPOINT`; бокси стенду/cover/studio/products |
 | **50** | Coloring canon: Classic American Iron (`coloring.rs` + roster) | 8.5×11 B&W no-bleed; 24 тачки; plates 1/2/3; verso = марка·модель·рік |
 | **51** | SVG plate kit (`coloring_svg.rs`, `coloring-plates`) | 8.5×11 pt, stroke 1.25, verso caption+mark, recto views; 104 p |
+| **52** | Studio draft uk + SVG includes; ⇄ en (`coloring-draft`) | `classic-american-iron` + `-en`; verso МАРКА/MAKE |
 
 Документи: [`CONCEPT.md`](./CONCEPT.md) · [`VULKAN_RESEARCH.md`](./VULKAN_RESEARCH.md) · [`COLORING_CARS.md`](./COLORING_CARS.md).
 
 ## Наступна черга (логічний порядок для `agi`)
 
-1. **RB-52** — Studio draft `uk` + SVG includes; ⇄ `en`.
-2. **RB-53** — paperback wrap (color cover, barcode, spine text ok at 104 p).
-3. **RB-54** — `/view3d` 8.5×11 spread proof.
-4. **RB-55** — `print/check` + KDP checklist before publish.
-5. **RB-56** — EPUBCheck-еквівалент v2 (зовнішні URL, script, ISBN per format).
+1. **RB-53** — paperback wrap (color cover, barcode, spine text ok at 104 p).
+2. **RB-54** — `/view3d` 8.5×11 spread proof.
+3. **RB-55** — `print/check` + KDP checklist before publish.
+4. **RB-56** — EPUBCheck-еквівалент v2 (зовнішні URL, script, ISBN per format).
 
 Не брати Vulkan у цю чергу (див. research).
 

@@ -30,6 +30,15 @@ pub enum Side {
     Recto,
 }
 
+/// Caption language on the verso (write-then-translate).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptionLang {
+    /// Source edition.
+    Uk,
+    /// KDP listing fork.
+    En,
+}
+
 /// Which drawing of the car this plate shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -160,11 +169,32 @@ pub fn car_slug(car: &Car) -> String {
         .join("-")
 }
 
-/// One SVG page (verso caption or recto art).
+/// Filename for one plate page (`{slug}-pN-verso.svg`).
+pub fn plate_file(car: &Car, plate_i: usize, side: Side) -> String {
+    let slug = car_slug(car);
+    match side {
+        Side::Verso => format!("{slug}-p{plate_i}-verso.svg"),
+        Side::Recto => format!("{slug}-p{plate_i}-recto.svg"),
+    }
+}
+
+/// One SVG page (verso caption or recto art). English captions (CLI default).
 pub fn page_svg(car: &Car, view: View, side: Side, page: u32, pages: u32) -> String {
+    page_svg_lang(car, view, side, page, pages, CaptionLang::En)
+}
+
+/// One SVG page with verso labels in `lang`.
+pub fn page_svg_lang(
+    car: &Car,
+    view: View,
+    side: Side,
+    page: u32,
+    pages: u32,
+    lang: CaptionLang,
+) -> String {
     let safe = safe_box(side, pages);
     let body = match side {
-        Side::Verso => verso_inner(car, view, &safe),
+        Side::Verso => verso_inner(car, view, &safe, lang),
         Side::Recto => recto_inner(car, view, &safe),
     };
     format!(
@@ -197,6 +227,11 @@ pub fn page_svg(car: &Car, view: View, side: Side, page: u32, pages: u32) -> Str
 
 /// Write verso+recto SVG pairs for every plate into `dir`. Returns file count.
 pub fn write_plates(roster: &Roster, dir: &Path) -> Result<usize, String> {
+    write_plates_lang(roster, dir, CaptionLang::En)
+}
+
+/// Write plates with verso captions in `lang`.
+pub fn write_plates_lang(roster: &Roster, dir: &Path, lang: CaptionLang) -> Result<usize, String> {
     if STROKE_PT < crate::coloring::LINE_MIN_PT {
         return Err(format!(
             "stroke {STROKE_PT} pt below KDP floor {}",
@@ -212,13 +247,18 @@ pub fn write_plates(roster: &Roster, dir: &Path) -> Result<usize, String> {
         for (i, view) in views_for(car).into_iter().enumerate() {
             let verso_page = start + 1 + ordinal * 2;
             let recto_page = verso_page + 1;
-            let slug = car_slug(car);
-            let vpath = dir.join(format!("{slug}-p{i}-verso.svg"));
-            let rpath = dir.join(format!("{slug}-p{i}-recto.svg"));
-            std::fs::write(&vpath, page_svg(car, view, Side::Verso, verso_page, pages))
-                .map_err(|e| e.to_string())?;
-            std::fs::write(&rpath, page_svg(car, view, Side::Recto, recto_page, pages))
-                .map_err(|e| e.to_string())?;
+            let vpath = dir.join(plate_file(car, i, Side::Verso));
+            let rpath = dir.join(plate_file(car, i, Side::Recto));
+            std::fs::write(
+                &vpath,
+                page_svg_lang(car, view, Side::Verso, verso_page, pages, lang),
+            )
+            .map_err(|e| e.to_string())?;
+            std::fs::write(
+                &rpath,
+                page_svg_lang(car, view, Side::Recto, recto_page, pages, lang),
+            )
+            .map_err(|e| e.to_string())?;
             n += 2;
             ordinal += 1;
         }
@@ -226,7 +266,7 @@ pub fn write_plates(roster: &Roster, dir: &Path) -> Result<usize, String> {
     Ok(n)
 }
 
-fn verso_inner(car: &Car, view: View, safe: &SafeBox) -> String {
+fn verso_inner(car: &Car, view: View, safe: &SafeBox, lang: CaptionLang) -> String {
     let mark_s = MARK_PT / 240.0;
     let mx = safe.x + safe.w - MARK_PT - 8.0;
     let my = safe.y + 8.0;
@@ -237,15 +277,31 @@ fn verso_inner(car: &Car, view: View, safe: &SafeBox) -> String {
         r#"<g id="mark" transform="translate({mx:.2} {my:.2}) scale({mark_s:.4})" stroke-width="3">{crest}</g>"#,
         crest = CREST
     ));
-    t.push_str(&text(tx, y, 13.0, "400", "MAKE"));
+    let (make_l, model_l, year_l, why, footer) = match lang {
+        CaptionLang::Uk => (
+            "МАРКА",
+            "МОДЕЛЬ",
+            "РІК",
+            car.why.as_str(),
+            "олівці / крейда · маркери: підклади аркуш під цей verso",
+        ),
+        CaptionLang::En => (
+            "MAKE",
+            "MODEL",
+            "YEAR",
+            car.why_en.as_str(),
+            "pencils / crayons · markers: slip a sheet under this verso",
+        ),
+    };
+    t.push_str(&text(tx, y, 13.0, "400", make_l));
     y += 36.0;
     t.push_str(&text(tx, y, 28.0, "700", &car.make.to_uppercase()));
     y += 44.0;
-    t.push_str(&text(tx, y, 13.0, "400", "MODEL"));
+    t.push_str(&text(tx, y, 13.0, "400", model_l));
     y += 36.0;
     t.push_str(&text(tx, y, 26.0, "700", &car.model));
     y += 44.0;
-    t.push_str(&text(tx, y, 13.0, "400", "YEAR"));
+    t.push_str(&text(tx, y, 13.0, "400", year_l));
     y += 36.0;
     t.push_str(&text(tx, y, 28.0, "700", &car.year.to_string()));
     y += 52.0;
@@ -254,15 +310,9 @@ fn verso_inner(car: &Car, view: View, safe: &SafeBox) -> String {
         y,
         14.0,
         "400",
-        &format!("view · {} · {}", view_label(view), car.why),
+        &format!("view · {} · {}", view_label(view, lang), why),
     ));
-    t.push_str(&text(
-        tx,
-        safe.y + safe.h - 28.0,
-        12.0,
-        "400",
-        "pencils / crayons · markers: slip a sheet under this verso",
-    ));
+    t.push_str(&text(tx, safe.y + safe.h - 28.0, 12.0, "400", footer));
     t
 }
 
@@ -279,13 +329,18 @@ fn recto_inner(car: &Car, view: View, safe: &SafeBox) -> String {
     )
 }
 
-fn view_label(v: View) -> &'static str {
-    match v {
-        View::ThreeQuarter => "¾",
-        View::Profile => "profile",
-        View::Rear => "rear",
-        View::Front => "front",
-        View::Badge => "detail",
+fn view_label(v: View, lang: CaptionLang) -> &'static str {
+    match (v, lang) {
+        (View::ThreeQuarter, CaptionLang::Uk) => "¾",
+        (View::Profile, CaptionLang::Uk) => "профіль",
+        (View::Rear, CaptionLang::Uk) => "зад",
+        (View::Front, CaptionLang::Uk) => "фас",
+        (View::Badge, CaptionLang::Uk) => "деталь",
+        (View::ThreeQuarter, CaptionLang::En) => "¾",
+        (View::Profile, CaptionLang::En) => "profile",
+        (View::Rear, CaptionLang::En) => "rear",
+        (View::Front, CaptionLang::En) => "front",
+        (View::Badge, CaptionLang::En) => "detail",
     }
 }
 
@@ -460,7 +515,18 @@ mod tests {
         assert!(v.contains("Cadillac"));
         assert!(v.contains("Eldorado"));
         assert!(v.contains("1959"));
+        assert!(v.contains("YEAR"));
         assert!(v.contains("id=\"mark\""));
+        let uk = page_svg_lang(
+            car,
+            View::ThreeQuarter,
+            Side::Verso,
+            10,
+            pages,
+            CaptionLang::Uk,
+        );
+        assert!(uk.contains("МАРКА"));
+        assert!(uk.contains("РІК"));
         assert!(v.contains("stroke-width=\"1.25\""));
         assert!(!v.to_ascii_lowercase().contains("<script"));
         let art = page_svg(car, View::Rear, Side::Recto, 11, pages);

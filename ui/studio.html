@@ -86,6 +86,9 @@
   .pv-flow h3{font-size:20px;margin:2px 0 14px}
   .pv-flow pre{background:#f2f0ea;color:#222;border-radius:0;padding:.5em;font-size:12px;line-height:1.3;margin:0;white-space:pre-wrap}
   .pv-flow blockquote{border-left:2px solid #bbb;margin:6px 0;padding:2px 0 2px 14px;color:#444;font-style:italic}
+  #prev img.plate,.pv-flow img.plate{display:block;width:100%;height:auto;background:#fff;border:0}
+  .pv-flow p.plate-wrap{margin:0}
+  .pv-flow img.plate{aspect-ratio:612/792}
   .pvw{position:relative;overflow:hidden;background:#fffdf8}
   .pvf{position:absolute;column-fill:auto;column-gap:0}
   .pv-book{display:flex;align-items:stretch;background:#5b4636;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.55)}
@@ -342,6 +345,14 @@ async function saveNow(){
  catch(e){pill('failed');}
 }
 function esc(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function plateHref(src){
+ const m=/^assets\/([A-Za-z0-9._-]+)$/.exec(src||'');
+ if(!m||!cur) return '';
+ return '/api/drafts/'+encodeURIComponent(cur.id)+'/assets/'+encodeURIComponent(m[1]);}
+function plateImg(alt,src){
+ const href=plateHref(src);
+ if(!href) return esc(alt||src);
+ return '<img class="plate" alt="'+esc(alt)+'" src="'+href+'"/>';}
 function inline(t){let s=esc(t);
  s=s.replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g,'<em>$1</em>').replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2">$1</a>');
@@ -357,6 +368,7 @@ function blocksHtml(md){let out='';let inCode=false;
   if(t.startsWith('### ')){flush();blk.push({s:lineOff});out+='<p class="muted" data-b="'+(blk.length-1)+'"><b>'+inline(t.slice(4))+'</b></p>';}
   else if(t.startsWith('## ')){flush();blk.push({s:lineOff});out+='<h2 data-b="'+(blk.length-1)+'">'+inline(t.slice(3))+'</h2>';}
   else if(t.startsWith('> ')){flush();blk.push({s:lineOff});out+='<blockquote data-b="'+(blk.length-1)+'">'+inline(t.slice(2))+'</blockquote>';}
+  else if(/^!\[[^\]]*\]\([^)]+\)$/.test(t)){flush();const im=/^!\[([^\]]*)\]\(([^)]+)\)$/.exec(t);blk.push({s:lineOff});out+='<p class="plate-wrap" data-b="'+(blk.length-1)+'">'+plateImg(im[1],im[2])+'</p>';}
   else if(t===''){flush();}
   else{if(!para.length)paraStart=lineOff;para.push(t);}
  }
@@ -416,6 +428,8 @@ $$('.bar button').forEach(b=>b.onclick=()=>{const a=b.dataset.act;
   if(ch.number===curNum) window._blk=r.blk;
   return `<p class="muted">${cw} ${ch.number}</p>`+r.html;}
  function measureHtmlPages(html){
+  const plates=(html.match(/class="plate"/g)||[]).length;
+  if(plates) return plates;
   const m=pvMetrics();
   let calc=$('#pgcalc');if(!calc){calc=document.createElement('div');calc.id='pgcalc';calc.className='pv-flow';document.body.appendChild(calc);}
   calc.style.cssText=`position:fixed;left:-99999px;top:0;visibility:hidden;width:${m.cw}px;font-size:${m.fs}px;line-height:1.35`;calc.innerHTML=html;

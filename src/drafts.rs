@@ -299,6 +299,40 @@ pub fn save_asset(root: &Path, id: &str, name: &str, bytes: &[u8]) -> Result<(),
     std::fs::write(dir.join(name), bytes).map_err(|e| format!("write asset {name}: {e}"))
 }
 
+/// Read an asset (path-safe name only).
+pub fn load_asset(root: &Path, id: &str, name: &str) -> Result<Vec<u8>, String> {
+    safe_id(id)?;
+    safe_asset_name(name)?;
+    let _ = load(root, id)?;
+    std::fs::read(draft_dir(root, id).join("assets").join(name))
+        .map_err(|e| format!("no asset {name}: {e}"))
+}
+
+/// MIME for a known asset extension (`html` is served as text, not executed).
+pub fn asset_mime(name: &str) -> &'static str {
+    match Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("svg") => "image/svg+xml; charset=utf-8",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        Some("html") => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Persist `draft.json` after in-memory edits (seed / fork patch).
+pub fn persist_meta(root: &Path, meta: &DraftMeta) -> Result<(), String> {
+    safe_id(&meta.id)?;
+    std::fs::write(meta_path(root, &meta.id), meta.to_json())
+        .map_err(|e| format!("write draft.json: {e}"))
+}
+
 /// Delete a draft folder entirely.
 pub fn delete(root: &Path, id: &str) -> Result<(), String> {
     safe_id(id)?;

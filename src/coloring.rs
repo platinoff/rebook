@@ -34,9 +34,12 @@ pub struct Car {
     pub tier: String,
     /// Distinct line-art views (1–3).
     pub plates: u32,
-    /// Why this car gets that many plates.
+    /// Why this car gets that many plates (source language).
     #[serde(default)]
     pub why: String,
+    /// English why (write-then-translate fork).
+    #[serde(default)]
+    pub why_en: String,
 }
 
 /// KDP print knobs for this title.
@@ -156,9 +159,9 @@ pub fn kdp_ok(r: &Roster) -> Result<(), String> {
         if c.make.trim().is_empty() || c.model.trim().is_empty() {
             return Err("make/model required on every verso".into());
         }
-        if c.why.trim().is_empty() {
+        if c.why.trim().is_empty() || c.why_en.trim().is_empty() {
             return Err(format!(
-                "{} {} {}: need a why for plate count",
+                "{} {} {}: need why + why_en for plate count",
                 c.year, c.make, c.model
             ));
         }

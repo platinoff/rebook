@@ -111,6 +111,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/drafts/{id}/reorder", put(api_draft_reorder))
         .route("/api/drafts/{id}/meta", put(api_draft_meta))
         .route("/api/drafts/{id}/cover-img", post(api_draft_cover_img))
+        .route("/api/drafts/{id}/assets/{name}", get(api_draft_asset))
         .route("/api/drafts/{id}/build", post(api_draft_build))
         .route("/api/drafts/{id}/promote", post(api_draft_promote))
         .route(
@@ -649,6 +650,24 @@ async fn api_draft_cover_img(
             "text/plain; charset=utf-8",
             "saved".to_string(),
         ),
+        Err(e) => draft_err(e),
+    }
+}
+
+async fn api_draft_asset(
+    State(st): State<Arc<AppState>>,
+    AxPath((id, name)): AxPath<(String, String)>,
+) -> Response {
+    match crate::drafts::load_asset(&st.drafts_root, &id, &name) {
+        Ok(bytes) => {
+            let mime = crate::drafts::asset_mime(&name);
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, mime)
+                .header(header::CACHE_CONTROL, "no-store")
+                .body(axum::body::Body::from(bytes))
+                .unwrap_or_default()
+        }
         Err(e) => draft_err(e),
     }
 }
@@ -1342,6 +1361,41 @@ mod tests {
         assert!(std::path::Path::new(body.trim_end()).exists());
     }
 
+    #[tokio::test]
+    async fn draft_svg_asset_route() {
+        let st0 = fixture_state();
+        let st = Arc::new(AppState {
+            books: st0.books.clone(),
+            root: st0.root.clone(),
+            drafts_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("target")
+                .join("web-drafts-asset"),
+            products_root: st0.products_root.clone(),
+        });
+        let _ = std::fs::remove_dir_all(&st.drafts_root);
+        crate::drafts::create(&st.drafts_root, "Asset Book", "A", "uk").unwrap();
+        crate::drafts::save_asset(
+            &st.drafts_root,
+            "asset-book",
+            "plate.svg",
+            br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>"#,
+        )
+        .unwrap();
+        let (s, b) = get(
+            router(st.clone()),
+            "/api/drafts/asset-book/assets/plate.svg",
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(b.contains("viewBox"));
+        let (s, _) = get(
+            router(st.clone()),
+            "/api/drafts/asset-book/assets/..draft.json",
+        )
+        .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+
     #[test]
     fn cover_html_blocks_native_get_and_has_en_labels() {
         let h = include_str!("../ui/cover.html");
@@ -1369,6 +1423,9 @@ mod tests {
         assert!(h.contains("id=\"prevPane\""));
         assert!(h.contains("mode:'translate'"));
         assert!(h.contains("/api/ai"));
+        assert!(h.contains("class=\"plate\""));
+        assert!(h.contains("plateHref"));
+        assert!(h.contains("/api/drafts/'+"));
     }
 
     #[test]

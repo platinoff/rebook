@@ -83,6 +83,16 @@ fn main() {
                 Err(e) => eprintln!("Error: {e}"),
             }
         }
+        "coloring-draft" => {
+            let dir = args
+                .get(2)
+                .cloned()
+                .unwrap_or_else(|| "workspace/drafts".to_string());
+            match coloring_draft(&dir) {
+                Ok((uk, en)) => println!("✓ Studio {uk} + {en} → {dir}"),
+                Err(e) => eprintln!("Error: {e}"),
+            }
+        }
         _ => {
             eprintln!("Unknown command: {}", args[1]);
             print_help();
@@ -145,6 +155,7 @@ fn print_help() {
     );
     println!("  check-print [products] - KDP print-gate v2: verify packages vs standards");
     println!("  coloring-plates [DIR] - Classic American Iron SVG plates (verso+recto)");
+    println!("  coloring-draft [DIR]  - Studio uk draft + en fork (default workspace/drafts)");
     println!("  view       - Local KDP EPUB previewer server (http://127.0.0.1:8090/)");
     println!("  convert    - (deprecated) KDP accepts EPUB directly");
     println!("  kdp        - (deprecated) KDP accepts EPUB directly");
@@ -568,4 +579,9 @@ fn coloring_plates(dir: &str) -> Result<usize, String> {
     let roster = rust_book::coloring::load_roster()?;
     rust_book::coloring::kdp_ok(&roster)?;
     rust_book::coloring_svg::write_plates(&roster, Path::new(dir))
+}
+
+fn coloring_draft(dir: &str) -> Result<(String, String), String> {
+    let (uk, en) = rust_book::coloring_draft::seed(Path::new(dir))?;
+    Ok((uk.id, en.id))
 }
