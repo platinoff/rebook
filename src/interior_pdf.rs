@@ -249,6 +249,44 @@ pub fn paginate(flows: &[Flow], height: f64) -> (Vec<Vec<Flow>>, Stats) {
     (pages, st)
 }
 
+/// Page 1 is the half-title; chapter content (and footer numbers) start at 2.
+/// Studio page-view (RB-44) uses the same pad so `.pgn` / `pvNo` stay within ±1
+/// of [`render`].
+pub const HALF_TITLE_PAGES: u32 = 1;
+
+/// Book page for a 1-based local page inside a chapter.
+/// `pages_before` is the sum of measured pages of earlier chapters.
+pub fn book_page(pages_before: u32, local: u32) -> u32 {
+    HALF_TITLE_PAGES + pages_before + local
+}
+
+/// Total book pages: half-title plus each chapter (empty chapter counts as 1).
+pub fn book_page_total(chap_pages: &[u32]) -> u32 {
+    HALF_TITLE_PAGES + chap_pages.iter().map(|n| (*n).max(1)).sum::<u32>()
+}
+
+/// Footer is drawn only when the 0-based page index is `> 0` (`render`: `if pi > 0`).
+pub fn footer_visible(book_page: u32) -> bool {
+    book_page > HALF_TITLE_PAGES
+}
+
+/// Map a 1-based book page onto `(chapter_index, local_page)`.
+/// `None` = half-title (page 1) or past the last chapter.
+pub fn locate_book_page(book_page: u32, chap_pages: &[u32]) -> Option<(usize, u32)> {
+    if book_page <= HALF_TITLE_PAGES {
+        return None;
+    }
+    let mut acc = HALF_TITLE_PAGES;
+    for (i, n) in chap_pages.iter().enumerate() {
+        let n = (*n).max(1);
+        if book_page <= acc + n {
+            return Some((i, book_page - acc));
+        }
+        acc += n;
+    }
+    None
+}
+
 /// Book flow: half-title page, then each chapter on its own page.
 pub fn flows_for(
     book: &Book,
@@ -592,5 +630,22 @@ mod tests {
         let doc = lopdf::Document::load(&out).expect("lopdf must parse own PDF");
         assert_eq!(doc.get_pages().len(), st.pages, "lopdf page count");
         assert!(doc.trailer.get(b"Root").is_ok(), "catalog reachable");
+    }
+
+    #[test]
+    fn rb44_book_page_matches_half_title_and_footer() {
+        let ch = [3u32, 2];
+        assert_eq!(book_page(0, 1), 2);
+        assert_eq!(book_page(3, 1), 5);
+        assert_eq!(book_page_total(&ch), 6);
+        assert_eq!(locate_book_page(1, &ch), None);
+        assert_eq!(locate_book_page(2, &ch), Some((0, 1)));
+        assert_eq!(locate_book_page(4, &ch), Some((0, 3)));
+        assert_eq!(locate_book_page(5, &ch), Some((1, 1)));
+        assert_eq!(locate_book_page(6, &ch), Some((1, 2)));
+        assert_eq!(locate_book_page(7, &ch), None);
+        assert!(!footer_visible(1));
+        assert!(footer_visible(2));
+        assert_eq!(book_page_total(&[0, 4]), 1 + 1 + 4);
     }
 }

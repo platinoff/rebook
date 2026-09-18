@@ -1299,6 +1299,10 @@ mod tests {
         assert!(h.contains("data-i18n=\"esc\""));
         assert!(h.contains("data-ph-en=\"— chapter —\""));
         assert!(h.contains("Esc — close"));
+        assert!(h.contains("HALF_TITLE"));
+        assert!(h.contains("jumpBook"));
+        assert!(h.contains("measureBook"));
+        assert!(h.contains("pvBookOff"));
     }
 
     #[test]
