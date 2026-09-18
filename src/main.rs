@@ -73,6 +73,16 @@ fn main() {
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
+        "coloring-plates" => {
+            let dir = args
+                .get(2)
+                .cloned()
+                .unwrap_or_else(|| "samples/coloring/plates".to_string());
+            match coloring_plates(&dir) {
+                Ok(n) => println!("✓ {n} SVG plates → {dir}"),
+                Err(e) => eprintln!("Error: {e}"),
+            }
+        }
         _ => {
             eprintln!("Unknown command: {}", args[1]);
             print_help();
@@ -134,6 +144,7 @@ fn print_help() {
         "  shelf      - Build all product formats (product.json targets: ebook/paperback/hardcover)"
     );
     println!("  check-print [products] - KDP print-gate v2: verify packages vs standards");
+    println!("  coloring-plates [DIR] - Classic American Iron SVG plates (verso+recto)");
     println!("  view       - Local KDP EPUB previewer server (http://127.0.0.1:8090/)");
     println!("  convert    - (deprecated) KDP accepts EPUB directly");
     println!("  kdp        - (deprecated) KDP accepts EPUB directly");
@@ -551,4 +562,10 @@ fn view(port: &str) -> Result<(), String> {
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| format!("Failed to start async runtime: {e}"))?;
     rt.block_on(rust_book::web::serve_web(books, &addr))
+}
+
+fn coloring_plates(dir: &str) -> Result<usize, String> {
+    let roster = rust_book::coloring::load_roster()?;
+    rust_book::coloring::kdp_ok(&roster)?;
+    rust_book::coloring_svg::write_plates(&roster, Path::new(dir))
 }

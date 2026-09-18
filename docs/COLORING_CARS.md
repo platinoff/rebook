@@ -22,8 +22,8 @@ Checked against KDP paperback help (2026) and competitor coloring practice
 | Gutter | KDP table (`gutter_in`, 0.375″ at 24–150 p) | Binding eats the inside; plates must not dive into the spine |
 | Line weight | **≥0.75 pt** (KDP graphic minimum); aim 1–1.5 pt | Hairlines vanish on KDP toner |
 | “Single-sided” | Art on **recto**; verso is **caption**, not empty | KDP rejects *excessive blank pages*; markers still hit a non-art back |
-| Page count | **even**, ≥24 | Printers sheet signatures; our roster → **102** pages |
-| Spine text | allowed (**102 > 79**) | KDP `SPINE_TEXT_MIN_PAGES`; short title on the wrap spine |
+| Page count | **even**, ≥24 | Printers sheet signatures; our roster → **104** pages |
+| Spine text | allowed (**104 > 79**) | KDP `SPINE_TEXT_MIN_PAGES`; short title on the wrap spine |
 | Raster | ≥300 DPI if any bitmap; **SVG plates** stay vector | `print_art_ok` already gates photos; line art should not be JPEGs |
 
 Competitors with 24–30 cars often print **one view per car**. That flattens a
@@ -45,12 +45,12 @@ Each **plate** = 2 PDF pages (verso caption + recto SVG).
 | **simple** | 1 | one clean ¾ or side | 3-window, Skylark, Impala ’58, GT40, 442, Javelin, GTO ’72, Riviera |
 
 Roster: **6 hero + 10 signature + 8 simple = 24 cars, 46 plates**.
-Interior: 8 front + 92 plate pages + 2 back = **102** (even). White 8.5×11
-allows up to 590 pages — we are in the cheap, thick-enough band.
+Interior: 9 front (ends on a recto so the first caption is verso) + 92 plate pages
++ 2 back = 103 → **104** even. White 8.5×11 allows up to 590 pages.
 
-Front matter (8): half-title, title, copyright / AI-disclosure slot, “this book
-belongs to”, how-to (pencils vs markers), roster TOC (spread).
-Back (2): index by year + make.
+Front matter (9): half-title, title, copyright / AI-disclosure slot, “this book
+belongs to”, how-to, roster TOC (spread), section opener «Тачки».
+Back (2): index by year + make. Trailing even pad is blank.
 
 ## Caption + custom mark
 
@@ -64,9 +64,9 @@ plus the garage crest [`coloring-mark.svg`](../samples/coloring-mark.svg)
 ## Pipeline (bands)
 
 1. **RB-50** (this file + `coloring.rs`) — research + roster math.
-2. **RB-51** — SVG plate kit (stroke, safe box, caption layout).
+2. **RB-51** (`coloring_svg.rs` + `cargo run -- coloring-plates`) — SVG kit.
 3. **RB-52** — Studio draft `uk` with SVG includes; ⇄ `en`.
-4. **RB-53** — paperback wrap (color cover, barcode, no spine text).
+4. **RB-53** — paperback wrap (color cover, barcode, spine text ok at 104 p).
 5. **RB-54** — `/view3d` 8.5×11 spread proof.
 6. **RB-55** — `print/check` + KDP checklist **before** publish.
 

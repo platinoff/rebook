@@ -15,7 +15,7 @@
     "line_min_pt": 0.75,
     "outside_margin_in": 0.25
   },
-  "front_matter_pages": 8,
+  "front_matter_pages": 9,
   "back_matter_pages": 2,
   "cars": [
     {"make": "Cadillac", "model": "Eldorado Biarritz", "year": 1959, "tier": "hero", "plates": 3, "why": "хвостові плавці + панорама"},

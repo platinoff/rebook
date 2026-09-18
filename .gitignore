@@ -16,6 +16,9 @@
 # ECI FOGRA39 / ISOcoated drop-in (RB-46) — not shipped, set REBOOK_ICC_CMYK
 /icc/*.icc
 
+# Generated coloring plates (RB-51 `coloring-plates`)
+/samples/coloring/plates/
+
 # Book outputs — never track compiled/exported book artifacts
 *.epub
 *.azw3

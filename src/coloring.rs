@@ -177,14 +177,14 @@ mod tests {
         kdp_ok(&r).unwrap();
         assert_eq!(r.cars.len(), 24);
         assert_eq!(plate_count(&r), 46);
-        assert_eq!(interior_pages(&r), 102);
+        assert_eq!(interior_pages(&r), 104);
         assert_eq!(r.kdp.trim, "8.5x11");
         assert!(!r.kdp.bleed);
         assert_eq!(r.source_language, "uk");
-        assert!((gutter_in(102).unwrap() - 0.375).abs() < 1e-9);
+        assert!((gutter_in(104).unwrap() - 0.375).abs() < 1e-9);
         assert!(
-            spine_text_allowed(102),
-            "102 pages clears the 79-page spine floor"
+            spine_text_allowed(104),
+            "104 pages clears the 79-page spine floor"
         );
         let hero = r.cars.iter().filter(|c| c.tier == "hero").count();
         let sig = r.cars.iter().filter(|c| c.tier == "signature").count();
