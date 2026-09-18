@@ -68,7 +68,7 @@
    <button class="btn ghost" id="reset" data-uk="скинути кут" data-en="reset angle">скинути кут</button>
    <span id="readout"></span>
   </div>
-  <div id="stage"><div id="book3d"></div><div id="leaf"></div><p id="hint">тягни / палець — обертати · ←/→ листати · колесо / pinch — зум · Tab на сцену: PgUp/PgDn зум, 0 — скинути · галочка «накладки» вмикає bleed/safe/fold-гади</p></div>
+  <div id="stage" class="rb-box"><div id="book3d"></div><div id="leaf"></div><p id="hint">тягни / палець — обертати · ←/→ листати · колесо / pinch — зум · Tab на сцену: PgUp/PgDn зум, 0 — скинути · галочка «накладки» вмикає bleed/safe/fold-гади</p></div>
  </div>
  <aside id="warns"><h3 data-uk="⚠ Preflight" data-en="⚠ Preflight">⚠ Preflight</h3><div class="w"><span class="muted" data-uk="обери книгу — звіт KDP-перевірок з'явиться тут" data-en="pick a book — the KDP report appears here">обери книгу — звіт KDP-перевірок з'явиться тут</span></div></aside>
 </div>
@@ -297,6 +297,7 @@ function pose(){$('#book3d').style.transform='rotateX('+rx+'deg) rotateY('+ry+'d
   else return;e.preventDefault();});
 })();
 boot();
+addEventListener('resize',()=>stage());
 </script>
 </body>
 </html>

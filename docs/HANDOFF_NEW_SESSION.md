@@ -10,12 +10,13 @@
   authoring rules live in `.cursor/rules/epub-kdp-guide.mdc`.
 - **Book sources**: `chapters/` + `book.json` (sample book); build:
   `cargo run -- build-epub`.
-- **Latest work**: **RB-40…48 landed** (this `agi` drain). Cover magic-byte sniff;
+- **Latest work**: **RB-40…49 landed** (this `agi` drain). Cover magic-byte sniff;
   OPF `urn:isbn:` + kdp.rs no AZW3; GSV-style nav `data-tip` + uk/en chrome;
   write-then-translate fork; Studio book-wide page numbers; Knuth–Liang
   hyphenation; FOGRA39 ICC drop-in; print-art DPI gate; EN `opf:isbn`;
   `/view3d` CSS page-flip + paperback verso/recto spread
-  (`GET /api/books/{id}/interior`). Prior: bands 233–263, RB-1…RB-38.
+  (`GET /api/books/{id}/interior`); AI `translate` (env-gated `/api/ai`) +
+  exclusive box fullscreen (□ / Esc) on stand/cover/studio/products.
   Three KDP types = ebook / paperback / hardcover. Gate: fmt · clippy 0 ·
   **cargo test**.
 - **Live server**: `127.0.0.1:8090` — UI is `include_str!`-embedded, so a rebuild

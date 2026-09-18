@@ -14,7 +14,14 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 /// Assist modes offered in the Studio.
-pub const MODES: &[&str] = &["continue", "rewrite", "summarize", "outline", "cover-brief"];
+pub const MODES: &[&str] = &[
+    "continue",
+    "rewrite",
+    "summarize",
+    "outline",
+    "cover-brief",
+    "translate",
+];
 
 /// Per-mode system instructions (uk prose, markdown output).
 pub fn system_prompt(mode: &str) -> &'static str {
@@ -31,6 +38,9 @@ pub fn system_prompt(mode: &str) -> &'static str {
         }
         "cover-brief" => {
             "Опиши арт-бриф для обкладинки: настрій, композицію, палітру, типографіку — текстом."
+        }
+        "translate" => {
+            "Переклади розділ книги. Перший рядок відповіді — перекладена назва (без #). Далі порожній рядок і markdown тіла. Збережи заголовки, fences, цитати, поетичні блоки. Не додавай передмови, коментарів чи приміток перекладача. Мова цілі — поле prompt (en або uk)."
         }
         _ => "Допоможи автору книги українською markdown-ом.",
     }
@@ -81,20 +91,28 @@ pub fn enabled() -> bool {
 /// Build the OpenAI-compatible chat body (mode-aware, with optional context).
 pub fn chat_body(mode: &str, prompt: &str, context: &str, model: &str) -> Value {
     let mut user = String::from("");
-    if !context.trim().is_empty() {
+    if mode == "translate" {
+        user.push_str("Цільова мова: ");
+        user.push_str(prompt.trim());
+        user.push_str("\n\n");
+        user.push_str(context.trim());
+    } else if !context.trim().is_empty() {
         user.push_str("Контекст:\n");
         user.push_str(context.trim());
         user.push_str("\n\nЗавдання: ");
+        user.push_str(prompt.trim());
+    } else {
+        user.push_str(prompt.trim());
     }
-    user.push_str(prompt.trim());
+    let translate = mode == "translate";
     json!({
         "model": model,
         "messages": [
             {"role": "system", "content": system_prompt(mode)},
             {"role": "user", "content": user},
         ],
-        "temperature": 0.7,
-        "max_tokens": 1024
+        "temperature": if translate { 0.2 } else { 0.7 },
+        "max_tokens": if translate { 8192 } else { 1024 }
     })
 }
 
@@ -379,8 +397,10 @@ mod tests {
 
     #[test]
     fn modes_and_body_shape() {
-        assert_eq!(MODES.len(), 5);
+        assert_eq!(MODES.len(), 6);
+        assert!(MODES.contains(&"translate"));
         assert!(system_prompt("outline").contains("markdown"));
+        assert!(system_prompt("translate").contains("переклад"));
         let body = chat_body("continue", "продовж", "уривок", "llama");
         assert_eq!(body["model"], "llama");
         assert_eq!(body["messages"][0]["role"], "system");
@@ -390,6 +410,11 @@ mod tests {
                 .unwrap()
                 .contains("уривок")
         );
+        let tr = chat_body("translate", "en", "Назва\n\nТекст розділу", "llama");
+        assert_eq!(tr["max_tokens"], 8192);
+        let user = tr["messages"][1]["content"].as_str().unwrap();
+        assert!(user.contains("en"));
+        assert!(user.contains("Текст розділу"));
     }
 
     #[test]

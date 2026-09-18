@@ -601,7 +601,13 @@ const NAV_STYLE: &str = "\
 .rb-nav .rb-home{margin-left:auto;font-weight:400;font-size:.85em}\
 .rb-nav .rb-lang{cursor:pointer;user-select:none;border:1px solid #2f3542;border-radius:999px;padding:.12em .7em;font-size:.85em}\
 .rb-nav .rb-lang:hover{border-color:#7aa2f7;color:#e6e6e6}\
-#rbTip{position:fixed;z-index:2000;max-width:280px;padding:6px 8px;border-radius:6px;border:1px solid #2f3542;background:#1a2233;color:#e6e6e6;font:12px/1.35 system-ui,'Segoe UI',sans-serif;display:none;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,.45)}";
+#rbTip{position:fixed;z-index:2000;max-width:280px;padding:6px 8px;border-radius:6px;border:1px solid #2f3542;background:#1a2233;color:#e6e6e6;font:12px/1.35 system-ui,'Segoe UI',sans-serif;display:none;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,.45)}\
+.rb-box{position:relative}\
+.rb-box>.rb-box-fs{position:absolute;top:8px;right:8px;z-index:6;width:28px;height:28px;border:1px solid #2f3542;border-radius:6px;background:#161922cc;color:#7aa2f7;cursor:pointer;font:700 14px/1 system-ui}\
+.rb-box>.rb-box-fs:hover{border-color:#7aa2f7;color:#e6e6e6}\
+.rb-box.fullscreen{position:fixed!important;inset:10px;top:48px;z-index:80!important;width:auto!important;height:auto!important;max-width:none!important;max-height:none!important;min-height:0!important;margin:0!important;border-radius:10px;box-shadow:0 24px 80px rgba(0,0,0,.55)}\
+body.rb-box-fs{overflow:hidden}\
+body.rb-box-fs .rb-nav{z-index:90}";
 
 const NAV_JS: &str = r#"(function(){
 var lang=localStorage.getItem('rb.lang')||'uk';
@@ -616,6 +622,10 @@ function apply(){
  });
  var chip=document.getElementById('rbLangChip');
  if(chip)chip.textContent=lang==='uk'?'EN':'УК';
+ document.querySelectorAll('[data-action=box-fs]').forEach(function(el){
+  var t=lang==='en'?el.getAttribute('data-tip-en'):el.getAttribute('data-tip-uk');
+  if(t)el.setAttribute('data-tip',t);
+ });
 }
 window.rbSetLang=function(l){lang=l;localStorage.setItem('rb.lang',l);apply();document.dispatchEvent(new CustomEvent('rb-lang',{detail:l}));};
 apply();
@@ -636,6 +646,60 @@ if(tip){
  document.addEventListener('pointermove',function(e){if(tip.style.display==='block')place(e);});
  document.addEventListener('pointerout',function(e){if(!e.relatedTarget||!e.relatedTarget.closest('[data-tip]'))tip.style.display='none';});
 }
+function rbExitBoxFs(){
+ document.querySelectorAll('.rb-box.fullscreen').forEach(function(b){
+  b.classList.remove('fullscreen');
+  var btn=b.querySelector('[data-action=box-fs]');
+  if(btn){
+   btn.textContent='□';
+   var tu=btn.getAttribute('data-tip-uk')||'';
+   var te=btn.getAttribute('data-tip-en')||'';
+   btn.setAttribute('data-tip',lang==='en'?te:tu);
+  }
+ });
+ document.body.classList.remove('rb-box-fs');
+ window.dispatchEvent(new Event('resize'));
+}
+window.rbExitBoxFs=rbExitBoxFs;
+window.rbBindBoxFs=function(){
+ document.querySelectorAll('.rb-box').forEach(function(box){
+  if(box.querySelector('[data-action=box-fs]'))return;
+  var btn=document.createElement('button');
+  btn.type='button';
+  btn.className='rb-box-fs';
+  btn.setAttribute('data-action','box-fs');
+  btn.textContent='□';
+  btn.setAttribute('data-tip-uk','На весь екран (Esc)');
+  btn.setAttribute('data-tip-en','Fullscreen (Esc)');
+  btn.setAttribute('data-tip',lang==='en'?'Fullscreen (Esc)':'На весь екран (Esc)');
+  btn.setAttribute('aria-label','Fullscreen');
+  btn.onclick=function(ev){
+   ev.stopPropagation();
+   var on=!box.classList.contains('fullscreen');
+   rbExitBoxFs();
+   if(on){
+    box.classList.add('fullscreen');
+    btn.textContent='×';
+    document.body.classList.add('rb-box-fs');
+    window.dispatchEvent(new Event('resize'));
+   }
+  };
+  box.appendChild(btn);
+ });
+};
+window.rbBindBoxFs();
+document.addEventListener('DOMContentLoaded',window.rbBindBoxFs);
+if(document.body){
+ new MutationObserver(function(){window.rbBindBoxFs();}).observe(document.body,{childList:true,subtree:true});
+}
+document.addEventListener('keydown',function(e){
+ if(e.key!=='Escape')return;
+ if(document.body.classList.contains('rb-box-fs')){
+  rbExitBoxFs();
+  e.preventDefault();
+  e.stopPropagation();
+ }
+},true);
 })();"#;
 
 /// A compact, self-contained top nav bar. `active` is the current path so
@@ -1533,6 +1597,9 @@ mod tests {
         assert!(n.contains("DOMContentLoaded"));
         assert!(n.contains("class=\"active\""));
         assert!(n.contains("href=\"/studio\""));
+        assert!(n.contains("rbBindBoxFs"));
+        assert!(n.contains(".rb-box.fullscreen"));
+        assert!(n.contains("rb-box-fs"));
     }
 
     #[test]

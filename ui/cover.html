@@ -53,7 +53,7 @@
  <a id="dl" hidden download="cover-template.svg"><button type="button">SVG ↓</button></a>
 </form>
 <p class="meta" id="meta"></p>
-<div id="canvas"></div>
+ <div id="canvas" class="rb-box"></div>
 </section>
 
 <section id="tab-studio" hidden>
@@ -87,13 +87,13 @@
   <span id="sstat" class="meta"></span>
  </div>
  <p class="meta" data-uk="Клік по шару — перетягни мишею; стрілки nudge 1px (Shift 10px); Del — прибрати текст; Esc — зняти вибір." data-en="Click a layer — drag; arrows nudge 1px (Shift 10px); Del removes text; Esc clears selection.">Клік по шару — перетягни мишею; стрілки nudge 1px (Shift 10px); Del — прибрати текст; Esc — зняти вибір.</p>
- <div id="preview"></div>
+ <div id="preview" class="rb-box"></div>
  <div class="bar" style="margin-top:1em;">
   <button id="v3Btn" class="ghost" data-uk="🧊 3D-перегляд" data-en="🧊 3D preview">🧊 3D-перегляд</button>
   <button id="v3Reset" class="ghost" hidden data-uk="скинути кут" data-en="reset angle">скинути кут</button>
   <span id="v3Dims" class="meta"></span>
  </div>
-  <div id="stage3d" hidden style="perspective:1600px;background:#0c0f16;border-radius:12px;margin-top:.6em;height:480px;overflow:hidden;position:relative;touch-action:none">
+  <div id="stage3d" class="rb-box" hidden style="perspective:1600px;background:#0c0f16;border-radius:12px;margin-top:.6em;height:480px;overflow:hidden;position:relative;touch-action:none">
    <div id="book3d" style="position:absolute;left:50%;top:50%;transform-style:preserve-3d"></div>
    <p style="position:absolute;bottom:.5em;width:100%;text-align:center;margin:0" class="muted" data-uk="тягни / палець — обертати · колесо / pinch — zoom · з фокусу: ←→↑↓ кут, PgUp/PgDn зум, 0 — скинути" data-en="drag / finger — rotate · wheel / pinch — zoom · from focus: ←→↑↓ angle, PgUp/PgDn zoom, 0 — reset">тягни / палець — обертати · колесо / pinch — zoom · з фокусу: ←→↑↓ кут, PgUp/PgDn зум, 0 — скинути</p>
   </div>

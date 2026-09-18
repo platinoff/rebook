@@ -161,7 +161,7 @@
    <span class="sep"></span>
    <input id="titleIn" placeholder="— розділ —" data-ph-uk="— розділ —" data-ph-en="— chapter —"/>
   </div>
-  <div class="editwrap"><textarea id="md" spellcheck="false"></textarea>
+  <div class="editwrap rb-box"><textarea id="md" spellcheck="false"></textarea>
    <div id="find" style="display:none;position:sticky;bottom:.5em;margin:0 1.2em;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.5em .7em;z-index:3;gap:.4em;align-items:center">
     <input id="fq" placeholder="знайти…" data-ph-uk="знайти…" data-ph-en="find…" style="flex:1;min-width:8em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.3em .5em"/>
     <input id="fr" placeholder="замінити…" data-ph-uk="замінити…" data-ph-en="replace…" style="flex:1;min-width:8em;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.3em .5em"/>
@@ -172,7 +172,7 @@
    </div>
   </div>
  </section>
-  <aside class="prev" id="prevPane"><div id="prev"></div><div id="pv" hidden></div></aside>
+  <aside class="prev rb-box" id="prevPane"><div id="prev"></div><div id="pv" hidden></div></aside>
 </main>
 <div class="stat" id="sbar">
  <span id="stPos" title="поточна позиція курсора (рядок:колонка)">—</span>
@@ -205,7 +205,7 @@ const L={
   del:'Видалити розділ?', sure:'Перейменувати — Enter, скасувати — Esc', chap:'Розділ', renamed:'перейменовано', reordered:'порядок збережено',
   meta:'⚙ Мета книги', author:'автор', lang:'мова', cover:'обкладинка', formats:'формати (для Build products)',
   msave:'Зберегти', mbuild:'📦 Build products', mdel:'✕ Видалити чернетку',
-  mtr:'⇄ Перекласти видання', mtrbusy:'копіюю видання…', mtrok:'нова мовна редакція', isbn:'ISBN (print)',
+  mtr:'⇄ Перекласти видання', mtrbusy:'копіюю видання…', mtrok:'нова мовна редакція', mtrai:'AI-переклад розділу…', mtrokai:'AI-переклад готовий', isbn:'ISBN (print)',
   draftNone:'— чернетка —', chapPh:'— розділ —', esc:'Esc — закрити', flow:'стрічка', pagesView:'сторінки',
   draftName:'Назва чернетки:', newChapTitle:'Новий розділ', find:'знайти…', replace:'замінити…'},
  en:{app:'Studio — drafts',shelf:'Shelf',cover:'Covers',products:'Products',target:'goal',today:'today',new:'＋ chapter',
@@ -213,7 +213,7 @@ const L={
   del:'Delete this chapter?', sure:'Rename — Enter, Esc cancels', chap:'Chapter', renamed:'renamed', reordered:'order saved',
   meta:'⚙ Book meta', author:'author', lang:'language', cover:'cover', formats:'formats (for Build products)',
   msave:'Save', mbuild:'📦 Build products', mdel:'✕ Delete draft',
-  mtr:'⇄ Translate edition', mtrbusy:'forking edition…', mtrok:'new language edition', isbn:'ISBN (print)',
+  mtr:'⇄ Translate edition', mtrbusy:'forking edition…', mtrok:'new language edition', mtrai:'AI translating chapter…', mtrokai:'AI translation done', isbn:'ISBN (print)',
   draftNone:'— draft —', chapPh:'— chapter —', esc:'Esc — close', flow:'flow', pagesView:'pages',
   draftName:'Draft title:', newChapTitle:'New chapter', find:'find…', replace:'replace…'}
 };
@@ -640,7 +640,27 @@ $('#mTr').onclick=async()=>{if(!cur)return;
  $('#mBuildOut').textContent=T('mtrbusy');
  try{const m=await j('/api/drafts/'+cur.id+'/translate/'+to,{method:'POST'});
   await loadDrafts();$('#draftSel').value=m.id;await openDraft(m.id);
-  $('#mBuildOut').textContent=T('mtrok')+' → '+m.id+' ('+m.language+')';}
+  let aiOn=false;
+  try{const st=await (await fetch('/api/ai')).json();aiOn=!!st.enabled;}catch(e){}
+  if(aiOn){
+   for(let i=0;i<chaps.length;i++){
+    const c=chaps[i];
+    $('#mBuildOut').textContent=T('mtrai')+' '+(i+1)+'/'+chaps.length;
+    const r=await fetch('/api/ai',{method:'POST',headers:{'content-type':'application/json'},
+     body:JSON.stringify({mode:'translate',prompt:to,context:(c.title||'')+'\n\n'+(c.content||'')})});
+    if(!r.ok){if(r.status===503)break;throw new Error(await r.text());}
+    const text=(await r.text()).trim();
+    const nl=text.indexOf('\n');
+    const title=(nl<0?text:text.slice(0,nl)).replace(/^#+\s*/,'').trim()||c.title;
+    const content=nl<0?'':text.slice(nl+1).replace(/^\n/,'');
+    await j(`/api/drafts/${cur.id}/chapter/${c.number}`,{method:'PUT',headers:{'content-type':'application/json'},
+     body:JSON.stringify({title,content})});
+   }
+   await openDraft(cur.id);
+   $('#mBuildOut').textContent=T('mtrokai')+' → '+m.id+' ('+m.language+')';
+  }else{
+   $('#mBuildOut').textContent=T('mtrok')+' → '+m.id+' ('+m.language+')';
+  }}
  catch(e){$('#mBuildOut').textContent='✗ '+e.message;}};
 $('#mDel').onclick=async()=>{if(!cur||!confirm('Видалити чернетку?'))return;
  await fetch('/api/drafts/'+cur.id,{method:'DELETE'});cur=null;chaps=[];

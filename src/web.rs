@@ -124,7 +124,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/cover", post(api_cover))
         .route("/api/cover/dims", get(api_cover_dims))
         .route("/api/print/check/{slug}/{format}", get(api_print_check))
-        .route("/api/ai", post(api_ai))
+        .route("/api/ai", get(api_ai_status).post(api_ai))
         .fallback(viewer_fallback)
         .with_state(state)
 }
@@ -742,6 +742,19 @@ async fn api_draft_put_cover(
     }
 }
 
+/// Probe whether the local AI adapter is on (never leaks the endpoint URL).
+async fn api_ai_status() -> Response {
+    let body = serde_json::json!({
+        "enabled": crate::ai::enabled(),
+        "modes": crate::ai::MODES,
+    });
+    text_response(
+        StatusCode::OK,
+        "application/json; charset=utf-8",
+        body.to_string(),
+    )
+}
+
 /// OpenAI-compatible assist; 503 when REBOOK_AI_ENDPOINT is unset (offline-safe).
 async fn api_ai(Json(body): Json<AiIn>) -> Response {
     if !crate::ai::enabled() {
@@ -871,6 +884,19 @@ mod tests {
         let (s, b) = get(router(fixture_state()), "/cover").await;
         assert_eq!(s, StatusCode::OK);
         assert!(b.contains("id=\"cover-app\""));
+        let (s, b) = get(router(fixture_state()), "/api/ai").await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(b.contains("\"enabled\""));
+        assert!(b.contains("translate"));
+        unsafe { std::env::remove_var("REBOOK_AI_ENDPOINT") };
+        let (s, _) = json_call(
+            router(fixture_state()),
+            "POST",
+            "/api/ai",
+            r#"{"mode":"translate","prompt":"en","context":"x"}"#,
+        )
+        .await;
+        assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]
@@ -1227,6 +1253,9 @@ mod tests {
         assert!(b.contains("id=\"bookSel\""));
         assert!(b.contains("id=\"leaf\""));
         assert!(b.contains("id=\"leafSpread\""));
+        assert!(b.contains("id=\"stage\""));
+        assert!(b.contains("class=\"rb-box\""));
+        assert!(b.contains("rbBindBoxFs"));
         let (s, b) = get(router(st.clone()), "/studio").await;
         assert_eq!(s, StatusCode::OK);
         assert!(b.contains("rb-nav"));
@@ -1319,6 +1348,7 @@ mod tests {
         assert!(h.contains("onsubmit=\"event.preventDefault();\""));
         assert!(h.contains("method=\"post\""));
         assert!(h.contains("data-en=\"Generate\""));
+        assert!(h.contains("class=\"rb-box\""));
         assert!(h.contains("fillTrims"));
         assert!(h.contains("data-en=\"Pages\""));
         assert!(h.contains("data-uk=\"Згенерувати\""));
@@ -1335,6 +1365,10 @@ mod tests {
         assert!(h.contains("jumpBook"));
         assert!(h.contains("measureBook"));
         assert!(h.contains("pvBookOff"));
+        assert!(h.contains("class=\"editwrap rb-box\""));
+        assert!(h.contains("id=\"prevPane\""));
+        assert!(h.contains("mode:'translate'"));
+        assert!(h.contains("/api/ai"));
     }
 
     #[test]
@@ -1342,5 +1376,6 @@ mod tests {
         let h = include_str!("../ui/products.html");
         assert!(h.contains("data-en=\"Products — rebook\""));
         assert!(h.contains("data-uk=\"Продукти — rebook\""));
+        assert!(h.contains("class=\"card rb-box\""));
     }
 }

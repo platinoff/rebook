@@ -61,7 +61,7 @@ async function boot(){
    fmts.push('<span class="badge gate" data-s="'+p.slug+'" data-f="'+k.format+'">'+(window._rbGate())+'</span>');
    fmts.push('<div class="gateout" id="g-'+p.slug+'-'+k.format+'"></div>');
   }
-  return '<div class="card"><h3>'+p.slug+'</h3>'+fmts.join(' ')+'</div>';
+  return '<div class="card rb-box"><h3>'+p.slug+'</h3>'+fmts.join(' ')+'</div>';
  }).join(''):'<p>'+empty+'</p>';
  document.querySelectorAll('.badge.gate').forEach(b=>b.onclick=async()=>{
   if(!b.dataset.s)return;

@@ -1,9 +1,9 @@
 # Rebook — roadmap (після RB-38)
 
 Тікети живуть на **GSV board**, product `rebook` (`RB-*`). Цей файл — канон
-черги. **RB-40…48 landed**. Next = RB-49.
+черги. **RB-40…49 landed**. Next = RB-50.
 
-## Landed (RB-40…48)
+## Landed (RB-40…49)
 
 | RB | Що | Навіщо |
 |----|----|--------|
@@ -16,13 +16,13 @@
 | **46** | FOGRA39 ICC drop-in (`REBOOK_ICC_CMYK` / `icc/*.icc`) + CMYK JPEG на X-1a | `/DestOutputProfile`; DeviceCMYK DCTDecode; ECI файл не в репо |
 | **47** | Print-art ≥300 DPI (`print_art_ok`); EN `opf:isbn` з `book.json` | eBook 1600×2560 ≠ 6×9 print; wrap не тягне 125 DPI JPEG |
 | **48** | `/view3d` CSS pages + paperback spread (verso/recto) | eBook не лише front; розгортка як Studio V |
+| **49** | AI `translate` + GSV box fullscreen (□ / Esc) | ⇄ fork, потім `/api/ai` якщо `REBOOK_AI_ENDPOINT`; бокси стенду/cover/studio/products |
 
 Документи: [`CONCEPT.md`](./CONCEPT.md) · [`VULKAN_RESEARCH.md`](./VULKAN_RESEARCH.md).
 
 ## Наступна черга (логічний порядок для `agi`)
 
-1. **RB-49** — AI-переклад чернетки (env-gated `/api/ai`, не хмара за замовчуванням).
-2. **RB-50** — EPUBCheck-еквівалент v2 (зовнішні URL, script, ISBN per format).
+1. **RB-50** — EPUBCheck-еквівалент v2 (зовнішні URL, script, ISBN per format).
 
 Не брати Vulkan у цю чергу (див. research).
 
