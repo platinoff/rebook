@@ -340,6 +340,25 @@ pub fn ebook_cover_ok(w_px: u32, h_px: u32) -> bool {
         && h_px as f64 / w_px as f64 >= 1.6
 }
 
+/// Effective print DPI of `px` samples across `inches` of a panel.
+pub fn print_art_dpi(px: u32, inches: f64) -> f64 {
+    if inches <= 0.0 {
+        0.0
+    } else {
+        px as f64 / inches
+    }
+}
+
+/// Minimum pixel edge so a panel of `inches` meets [`DPI`].
+pub fn print_art_min_px(inches: f64) -> u32 {
+    (inches * DPI).ceil() as u32
+}
+
+/// True when both axes of a raster meet [`DPI`] on a print panel.
+pub fn print_art_ok(w_px: u32, h_px: u32, w_in: f64, h_in: f64) -> bool {
+    print_art_dpi(w_px, w_in) >= DPI && print_art_dpi(h_px, h_in) >= DPI
+}
+
 /// EAN-13 modulo-10 check digit (weights 1,3 from the left) over 12 digits.
 pub fn ean13_check_digit(first12: &[u8; 12]) -> u8 {
     let sum: u32 = first12
@@ -496,6 +515,19 @@ mod tests {
         assert!(!ebook_cover_ok(600, 1000)); // too narrow
         assert!(!ebook_cover_ok(1000, 1000)); // ratio < 1.6
         assert!(!ebook_cover_ok(1600, 10_001)); // too tall
+    }
+
+    #[test]
+    fn print_art_dpi_gate_is_300() {
+        assert!((print_art_dpi(1800, 6.0) - 300.0).abs() < 1e-9);
+        assert!(print_art_ok(1800, 2700, 6.0, 9.0));
+        assert!(
+            !print_art_ok(1600, 2560, 6.0, 9.0),
+            "KDP ebook 1600×2560 is ~267 DPI on 6×9 print"
+        );
+        assert!(!print_art_ok(750, 1200, 6.0, 9.0)); // ~125 DPI
+        assert_eq!(print_art_min_px(6.0), 1800);
+        assert_eq!(print_art_min_px(9.0), 2700);
     }
 
     #[test]

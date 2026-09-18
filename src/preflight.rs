@@ -7,8 +7,9 @@ use serde::Serialize;
 
 use crate::Book;
 use crate::standards::{
-    HARDCOVER_TRIMS, PAPERBACK_TRIMS, Paper, Trim, ebook_cover_ok, even_pages, find_trim,
-    hardcover_spine_approx, isbn_to_ean13, paperback_pages_ok, spine_text_allowed, spine_width,
+    DPI, HARDCOVER_TRIMS, PAPERBACK_TRIMS, Paper, Trim, ebook_cover_ok, even_pages, find_trim,
+    hardcover_spine_approx, isbn_to_ean13, paperback_pages_ok, print_art_dpi, print_art_min_px,
+    print_art_ok, spine_text_allowed, spine_width,
 };
 use crate::viewer::Epub;
 
@@ -149,27 +150,41 @@ pub(crate) fn img_size(b: &[u8]) -> Option<(u32, u32)> {
     jpeg_info(b).map(|j| (j.w, j.h))
 }
 
-/// SOF-only CMYK JPEG for marker sniffing and PDF/X shape tests (not a real scan).
+/// SOF-only JPEG for marker sniffing and PDF/X shape tests (not a real scan).
 #[cfg(test)]
-pub(crate) fn stub_cmyk_jpeg(w: u16, h: u16) -> Vec<u8> {
+pub(crate) fn stub_jpeg(w: u16, h: u16, nf: u8, adobe: bool) -> Vec<u8> {
     let mut v = vec![0xFF, 0xD8];
-    v.extend_from_slice(&[0xFF, 0xEE, 0x00, 0x0E]);
-    v.extend_from_slice(b"Adobe");
-    v.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0]);
-    let sof_len: u16 = 8 + 3 * 4;
+    if adobe {
+        v.extend_from_slice(&[0xFF, 0xEE, 0x00, 0x0E]);
+        v.extend_from_slice(b"Adobe");
+        v.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0]);
+    }
+    let sof_len: u16 = 8 + 3 * nf as u16;
     v.extend_from_slice(&[0xFF, 0xC0]);
     v.extend_from_slice(&sof_len.to_be_bytes());
     v.push(8);
     v.extend_from_slice(&h.to_be_bytes());
     v.extend_from_slice(&w.to_be_bytes());
-    v.push(4);
-    for id in 1u8..=4 {
+    v.push(nf);
+    for id in 1u8..=nf {
         v.push(id);
         v.push(0x11);
         v.push(0);
     }
     v.extend_from_slice(&[0xFF, 0xD9]);
     v
+}
+
+/// SOF-only CMYK JPEG for marker sniffing and PDF/X shape tests (not a real scan).
+#[cfg(test)]
+pub(crate) fn stub_cmyk_jpeg(w: u16, h: u16) -> Vec<u8> {
+    stub_jpeg(w, h, 4, true)
+}
+
+/// SOF-only RGB JPEG (RB-47 print-art DPI tests).
+#[cfg(test)]
+pub(crate) fn stub_rgb_jpeg(w: u16, h: u16) -> Vec<u8> {
+    stub_jpeg(w, h, 3, false)
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -391,17 +406,21 @@ pub fn run(
                 true,
                 format!("обкладинку знайдено: {} ({})", c.file, c.mime),
             );
-            if c.w_px > 0 && !is_ebook {
-                let dpi = c.w_px as f64 / trim.w;
-                push(
-                    &mut warnings,
-                    "cover:dpi",
-                    dpi >= 300.0,
-                    format!(
-                        "обкладинка {} ({}px) на панель {:.1}″ → {:.0} DPI (KDP ≥300)",
-                        c.file, c.w_px, trim.w, dpi
-                    ),
+            if c.w_px > 0 && c.h_px > 0 {
+                let dpi_w = print_art_dpi(c.w_px, trim.w);
+                let dpi_h = print_art_dpi(c.h_px, trim.h);
+                let art_ok = print_art_ok(c.w_px, c.h_px, trim.w, trim.h);
+                let min_w = print_art_min_px(trim.w);
+                let min_h = print_art_min_px(trim.h);
+                let detail = format!(
+                    "{} {}×{}px on {} print → {:.0}×{:.0} DPI (need ≥{:.0} / {}×{}px)",
+                    c.file, c.w_px, c.h_px, trim.label, dpi_w, dpi_h, DPI, min_w, min_h
                 );
+                if is_ebook {
+                    push(&mut warnings, "cover:print-art", art_ok, detail);
+                } else {
+                    push(&mut warnings, "cover:dpi", art_ok, detail);
+                }
             }
             if c.w_px > 0 && c.h_px > 0 {
                 let ar = c.h_px as f64 / c.w_px as f64;
@@ -587,6 +606,24 @@ mod tests {
         assert_eq!(pf.isbn.as_deref(), Some("9783161484100"));
         let dpi = pf.warnings.iter().find(|w| w.id == "cover:dpi").unwrap();
         assert!(!dpi.ok); // 1px cover can't be 300 DPI
+        let pf_ebook = run(
+            &synth_epub(true, true),
+            &book(),
+            "ebook",
+            "6x9",
+            Paper::White,
+            300,
+        );
+        let art = pf_ebook
+            .warnings
+            .iter()
+            .find(|w| w.id == "cover:print-art")
+            .unwrap();
+        assert!(!art.ok, "1×1 px is not 300 DPI print-art");
+        assert!(
+            pf_ebook.warnings.iter().all(|w| w.id != "cover:dpi"),
+            "ebook mode reports cover:print-art, not cover:dpi"
+        );
         let pf2 = run(
             &synth_epub(false, false),
             &book(),

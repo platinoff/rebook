@@ -389,7 +389,51 @@ pub fn kdp_check(epub: &Epub, book: &Book) -> KdpReport {
         },
     });
 
+    // 6. ISBN in OPF: required when book.json declares one, or for EN editions.
+    if let Some(item) = opf_isbn_item(&opf, book) {
+        items.push(item);
+    }
+
     KdpReport { items }
+}
+
+/// `opf:isbn` — EN editions and any `book.json` ISBN must land as `urn:isbn:`.
+fn opf_isbn_item(opf: &str, book: &Book) -> Option<KdpCheckItem> {
+    let lang = book.language.to_ascii_lowercase();
+    let en = lang == "en" || lang.starts_with("en-");
+    let declared = book
+        .isbn
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if declared.is_none() && !en {
+        return None;
+    }
+    if let Some(raw) = declared {
+        let ok = match crate::standards::isbn_to_ean13(raw) {
+            Ok(ean) => opf.contains(&format!("urn:isbn:{ean}")),
+            Err(_) => false,
+        };
+        return Some(KdpCheckItem {
+            name: "opf:isbn".to_string(),
+            ok,
+            detail: if ok {
+                format!("urn:isbn:{raw}")
+            } else {
+                format!("book.json ISBN {raw} немає в OPF як urn:isbn:")
+            },
+        });
+    }
+    let has = opf.contains("urn:isbn:");
+    Some(KdpCheckItem {
+        name: "opf:isbn".to_string(),
+        ok: has,
+        detail: if has {
+            "urn:isbn у OPF".to_string()
+        } else {
+            "EN edition: задайте book.json isbn, щоб OPF мав urn:isbn:".to_string()
+        },
+    })
 }
 
 fn mimetype_item(ok: bool) -> KdpCheckItem {
@@ -1240,6 +1284,42 @@ mod tests {
         let e = build_test_epub();
         let report = kdp_check(&e, &test_book());
         assert!(report.passed(), "report should pass:\n{:?}", report.items);
+    }
+
+    #[test]
+    fn kdp_check_flags_en_missing_isbn() {
+        let e = build_test_epub();
+        let mut book = test_book();
+        book.language = "en".to_string();
+        let report = kdp_check(&e, &book);
+        let item = report.items.iter().find(|i| i.name == "opf:isbn").unwrap();
+        assert!(!item.ok, "EN without urn:isbn must fail: {item:?}");
+        book.isbn = Some("978-3-16-148410-0".to_string());
+        let report = kdp_check(&e, &book);
+        let item = report.items.iter().find(|i| i.name == "opf:isbn").unwrap();
+        assert!(!item.ok, "declared ISBN missing from OPF: {item:?}");
+    }
+
+    #[test]
+    fn kdp_check_en_isbn_in_opf_ok() {
+        let mut e = build_test_epub();
+        e.entries
+            .iter_mut()
+            .filter(|(n, _)| n == "OEBPS/content.opf")
+            .for_each(|(_, b)| {
+                let s = String::from_utf8_lossy(b);
+                let s = s.replace(
+                    "</metadata>",
+                    "<dc:identifier id=\"pub-id\">urn:isbn:9783161484100</dc:identifier></metadata>",
+                );
+                *b = s.into_bytes();
+            });
+        let mut book = test_book();
+        book.language = "en".to_string();
+        book.isbn = Some("978-3-16-148410-0".to_string());
+        let report = kdp_check(&e, &book);
+        let item = report.items.iter().find(|i| i.name == "opf:isbn").unwrap();
+        assert!(item.ok, "{item:?}");
     }
 
     #[test]

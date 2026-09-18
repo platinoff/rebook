@@ -5,6 +5,7 @@
   "year": 2026,
   "format": "EPUB 3.2",
   "language": "en",
+  "isbn": "978-3-16-148410-0",
   "chapters": [
     { "number": 1, "title": "A Calm Start", "file": "chapters/01.md" },
     { "number": 2, "title": "Markdown, Rendered", "file": "chapters/02.md" },

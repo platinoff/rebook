@@ -999,6 +999,24 @@ mod tests {
     }
 
     #[test]
+    fn opf_emits_urn_isbn_from_book_when_config_empty() {
+        let cfg = EpubConfig {
+            title: "Test Book".to_string(),
+            author: "Author".to_string(),
+            output_path: "build/test.epub".to_string(),
+            cover_image: None,
+            language: "en".to_string(),
+            isbn: None,
+        };
+        let mut book = sample_book();
+        book.language = "en".to_string();
+        book.isbn = Some("978-3-16-148410-0".to_string());
+        let o = content_opf(&cfg, &book, &sample_chapters(), None);
+        assert!(o.contains("<dc:identifier id=\"pub-id\">urn:isbn:9783161484100</dc:identifier>"));
+        assert!(o.contains("<dc:language>en</dc:language>"));
+    }
+
+    #[test]
     fn sniff_image_kind_reads_magic_not_extension() {
         assert_eq!(
             sniff_image_kind(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0]),

@@ -43,6 +43,8 @@ pub struct CoverPdfReport {
     pub image_placed: bool,
     /// RB-16c: front_image present but not embeddable (PNG/WebP or RGB-in-CMYK).
     pub image_skipped: bool,
+    /// RB-47: raster present but below 300 DPI on the print panel.
+    pub image_low_dpi: bool,
     /// RB-46: CMYK ICC attached as `/DestOutputProfile`.
     pub icc_attached: bool,
 }
@@ -200,8 +202,14 @@ pub fn render_wrap_pdf_opts(
                 match crate::preflight::jpeg_info(&bytes) {
                     Some(info) => {
                         let is_cmyk = info.space == crate::preflight::JpegSpace::Cmyk;
+                        let panel_h = if ebook { h } else { h - 2.0 * edge };
+                        let print_ok = ebook
+                            || crate::standards::print_art_ok(info.w, info.h, trim_w, panel_h);
                         if cmyk != is_cmyk {
                             rep.image_skipped = true;
+                        } else if !print_ok {
+                            rep.image_skipped = true;
+                            rep.image_low_dpi = true;
                         } else {
                             let idx = page.add_image_space(
                                 info.w,
@@ -355,9 +363,8 @@ mod tests {
 
     #[test]
     fn wrap_pdf_embeds_jpeg_raster() {
-        // real repo JPEG (en/cover_kdp.jpg) → DCTDecode XObject on the front panel
-        let jpg = std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("en/cover_kdp.jpg"))
-            .expect("repo cover jpg");
+        // SOF stub at 300 DPI on 6×9 (1800×2700) — DCTDecode XObject, no live cover.
+        let jpg = crate::preflight::stub_rgb_jpeg(1800, 2700);
         let uri = format!(
             "data:image/jpeg;base64,{}",
             crate::preflight::b64_encode(&jpg)
@@ -373,6 +380,7 @@ mod tests {
             .join("wrap-raster.pdf");
         let rep = render_wrap_pdf(&d, &out).unwrap();
         assert!(rep.image_placed, "JPEG must ride the wrap PDF");
+        assert!(!rep.image_low_dpi);
         let bytes = std::fs::read(&out).unwrap();
         let s = String::from_utf8_lossy(&bytes).into_owned();
         assert!(
@@ -389,6 +397,17 @@ mod tests {
         assert!(
             !rep.image_placed && rep.image_skipped,
             "PNG → convert-to-JPEG notice"
+        );
+        // 125 DPI ebook raster is not print-art:
+        let low = crate::preflight::stub_rgb_jpeg(750, 1200);
+        d.front_image = Some(format!(
+            "data:image/jpeg;base64,{}",
+            crate::preflight::b64_encode(&low)
+        ));
+        let rep = render_wrap_pdf(&d, &out).unwrap();
+        assert!(
+            !rep.image_placed && rep.image_skipped && rep.image_low_dpi,
+            "sub-300 DPI JPEG must not ride print wrap"
         );
         // CMYK/X-1a stays vector-only (RGB raster would break the output intent):
         d.front_image = Some(uri);
@@ -410,7 +429,7 @@ mod tests {
 
     #[test]
     fn pdfx_attaches_cmyk_icc_and_cmyk_jpeg() {
-        let jpg = crate::preflight::stub_cmyk_jpeg(8, 8);
+        let jpg = crate::preflight::stub_cmyk_jpeg(1800, 2700);
         let uri = format!(
             "data:image/jpeg;base64,{}",
             crate::preflight::b64_encode(&jpg)

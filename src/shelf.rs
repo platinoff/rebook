@@ -157,25 +157,14 @@ pub fn build_product(
                 let out = paths.dir.join("ebook").join(format!("{s}.epub"));
                 std::fs::create_dir_all(out.parent().unwrap())
                     .map_err(|e| format!("mkdir ebook: {e}"))?;
-                // same cover auto-detect as the CLI: cover.png / cover_kdp.jpg / cover.jpg next to book.json
-                let cover = [
-                    "cover.png",
-                    "cover_kdp.jpg",
-                    "cover.jpg",
-                    "cover.jpeg",
-                    "cover.webp",
-                ]
-                .iter()
-                .map(|c| base.join(c))
-                .find(|p| p.exists())
-                .map(|p| p.to_string_lossy().into_owned());
+                let cover = find_sidecar_cover(base).map(|p| p.to_string_lossy().into_owned());
                 let config = EpubConfig {
                     title: book.title.clone(),
                     author: book.author.clone(),
                     output_path: out.to_string_lossy().into_owned(),
                     cover_image: cover,
                     language: book.language.clone(),
-                    isbn: book.isbn.clone().or_else(|| cfg.isbn.clone()),
+                    isbn: resolved_isbn(book, cfg),
                 };
                 generate_epub(&config, book, chapters)?;
                 paths.ebook = Some(out);
@@ -184,7 +173,7 @@ pub fn build_product(
             "paperback" => {
                 let p = print_package(
                     &mut paths,
-                    &s,
+                    base,
                     book,
                     chapters,
                     cfg,
@@ -196,7 +185,7 @@ pub fn build_product(
             "hardcover" => {
                 let p = print_package(
                     &mut paths,
-                    &s,
+                    base,
                     book,
                     chapters,
                     cfg,
@@ -215,15 +204,97 @@ pub fn build_product(
     Ok(paths)
 }
 
+fn find_sidecar_cover(base: &Path) -> Option<PathBuf> {
+    [
+        "cover.png",
+        "cover_kdp.jpg",
+        "cover.jpg",
+        "cover.jpeg",
+        "cover.webp",
+    ]
+    .iter()
+    .map(|c| base.join(c))
+    .find(|p| p.exists())
+}
+
+fn nonempty_isbn(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// `book.json` ISBN wins; `product.json` is the fallback.
+fn resolved_isbn(book: &Book, cfg: &ProductConfig) -> Option<String> {
+    nonempty_isbn(book.isbn.as_deref()).or_else(|| nonempty_isbn(cfg.isbn.as_deref()))
+}
+
+/// Place a sidecar JPEG on the wrap only when it is ≥300 DPI print-art.
+fn attach_print_art(
+    cdoc: &mut crate::coverdoc::CoverDoc,
+    cover: &Path,
+    trim_w: f64,
+    trim_h: f64,
+    notes: &mut Vec<String>,
+) {
+    let bytes = match std::fs::read(cover) {
+        Ok(b) => b,
+        Err(e) => {
+            notes.push(format!("- print-art ✗ read {}: {e}", cover.display()));
+            return;
+        }
+    };
+    if !bytes.starts_with(&[0xFF, 0xD8]) {
+        notes.push(format!(
+            "- print-art skipped {}: not JPEG (export JPEG ≥300 DPI for wrap)",
+            cover
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("cover")
+        ));
+        return;
+    }
+    let Some(info) = crate::preflight::jpeg_info(&bytes) else {
+        notes.push("- print-art ✗ JPEG SOF unreadable".to_string());
+        return;
+    };
+    if crate::standards::print_art_ok(info.w, info.h, trim_w, trim_h) {
+        cdoc.front_image = Some(format!(
+            "data:image/jpeg;base64,{}",
+            crate::preflight::b64_encode(&bytes)
+        ));
+        notes.push(format!(
+            "- print-art ✓ {}×{}px → {:.0} DPI on {:.1}×{:.1}″",
+            info.w,
+            info.h,
+            crate::standards::print_art_dpi(info.w, trim_w),
+            trim_w,
+            trim_h
+        ));
+    } else {
+        notes.push(format!(
+            "- print-art ✗ {}×{}px → {:.0} DPI on {:.1}×{:.1}″ (need ≥{:.0} / {}×{}px)",
+            info.w,
+            info.h,
+            crate::standards::print_art_dpi(info.w, trim_w),
+            trim_w,
+            trim_h,
+            crate::standards::DPI,
+            crate::standards::print_art_min_px(trim_w),
+            crate::standards::print_art_min_px(trim_h)
+        ));
+    }
+}
+
 fn print_package(
     paths: &mut ProductPaths,
-    s: &str,
+    cover_base: &Path,
     book: &Book,
     chapters: &[Chapter],
     cfg: &ProductConfig,
     mode: Mode,
     table: &'static [crate::standards::Trim],
 ) -> Result<PathBuf, String> {
+    let s = slug(&book.title);
     let trim = find_trim(table, &cfg.trim)
         .ok_or_else(|| format!("trim {} not available for {}", cfg.trim, mode.tag()))?;
     let paper = cfg.paper.paper();
@@ -252,14 +323,28 @@ fn print_package(
         paths.pages,
         paper_tok,
     );
-    cdoc.isbn = cfg.isbn.clone();
+    cdoc.isbn = resolved_isbn(book, cfg);
+    if let Some(cover) = find_sidecar_cover(cover_base) {
+        attach_print_art(&mut cdoc, &cover, trim.w, trim.h, &mut pdf_notes);
+    }
     match crate::coverpdf::render_wrap_pdf(&cdoc, &dir.join("cover-wrap.pdf")) {
-        Ok(rep) => pdf_notes.push(format!(
-            "- cover-wrap.pdf ✓ ({} bytes, barcode {} bars, text {})",
-            rep.bytes,
-            rep.barcode_bars,
-            if rep.text_placed { "placed" } else { "skipped" }
-        )),
+        Ok(rep) => {
+            let img = if rep.image_placed {
+                "image placed"
+            } else if rep.image_low_dpi {
+                "image skipped <300 DPI"
+            } else if rep.image_skipped {
+                "image skipped"
+            } else {
+                "no front image"
+            };
+            pdf_notes.push(format!(
+                "- cover-wrap.pdf ✓ ({} bytes, barcode {} bars, text {}, {img})",
+                rep.bytes,
+                rep.barcode_bars,
+                if rep.text_placed { "placed" } else { "skipped" }
+            ));
+        }
         Err(e) => pdf_notes.push(format!("- cover-wrap.pdf ✗ SKIPPED: {e}")),
     }
 
@@ -280,12 +365,12 @@ fn print_package(
         std::fs::copy(ep, dir.join(format!("{s}.epub"))).map_err(|e| e.to_string())?;
     }
 
-    let ean13 = match &cfg.isbn {
+    let ean13 = match resolved_isbn(book, cfg) {
         Some(isbn) => {
             let (bw, bh) = BARCODE_ZONE_IN;
-            let svg = barcode_svg(isbn, bw, bh)?;
+            let svg = barcode_svg(&isbn, bw, bh)?;
             std::fs::write(dir.join("barcode.svg"), svg).map_err(|e| e.to_string())?;
-            Some(crate::standards::isbn_to_ean13(isbn)?)
+            Some(crate::standards::isbn_to_ean13(&isbn)?)
         }
         None => None,
     };
@@ -748,6 +833,49 @@ mod tests {
                 .any(|i| i.name == "print:spine-formula" && !i.ok)
         );
         assert!(items.iter().any(|i| i.name == "print:ean13" && !i.ok));
+    }
+
+    #[test]
+    fn book_isbn_fills_en_opf_and_print_barcode() {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("shelf-en-isbn");
+        let _ = std::fs::remove_dir_all(&base);
+        let (mut book, chapters) = mini();
+        book.language = "en".to_string();
+        book.isbn = Some("978-3-16-148410-0".to_string());
+        let cfg = ProductConfig {
+            targets: vec!["ebook".to_string(), "paperback".to_string()],
+            trim: "6x9".to_string(),
+            pages: Some(80),
+            paper: PaperName::White,
+            isbn: None,
+        };
+        let p = build_product(&base, &book, &chapters, &cfg).unwrap();
+        let mf: PackageManifest = serde_json::from_str(
+            &std::fs::read_to_string(p.dir.join("paperback").join("manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(mf.ean13.as_deref(), Some("9783161484100"));
+        let ep = p.ebook.clone().unwrap();
+        let epub = crate::viewer::Epub::from_path(&ep.to_string_lossy()).unwrap();
+        let opf = epub.text("OEBPS/content.opf").unwrap();
+        assert!(opf.contains("urn:isbn:9783161484100"));
+        let report = crate::viewer::kdp_check(&epub, &book);
+        let item = report.items.iter().find(|i| i.name == "opf:isbn").unwrap();
+        assert!(item.ok, "{item:?}");
+        // low-DPI sidecar must be refused as print-art, not silently stretched
+        std::fs::write(
+            base.join("cover.jpg"),
+            crate::preflight::stub_rgb_jpeg(750, 1200),
+        )
+        .unwrap();
+        let p2 = build_product(&base, &book, &chapters, &cfg).unwrap();
+        let cl = std::fs::read_to_string(p2.dir.join("paperback").join("CHECKLIST.md")).unwrap();
+        assert!(
+            cl.contains("print-art ✗") && cl.contains("DPI"),
+            "checklist should refuse 125 DPI cover:\n{cl}"
+        );
     }
 
     #[test]
