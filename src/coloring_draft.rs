@@ -8,10 +8,13 @@
 use std::path::Path;
 
 use crate::coloring::{Roster, interior_pages, kdp_ok, load_roster, plate_count};
-use crate::coloring_svg::{CaptionLang, Side, plate_file, views_for, write_plates_lang};
+use crate::coloring_svg::{
+    CaptionLang, art_dir, art_png_name, identity_png_name, plate_file, views_for, write_plates_lang,
+};
+use crate::coverdoc::CoverDoc;
 use crate::drafts::{
     DraftMeta, MetaPatch, create, draft_dir, fork_translation, persist_meta, save_chapter,
-    save_meta,
+    save_cover, save_meta,
 };
 
 /// Seed id (ASCII slug of the EN listing title).
@@ -61,10 +64,54 @@ pub fn seed(root: &Path) -> Result<(DraftMeta, DraftMeta), String> {
         CaptionLang::En,
     )?;
     write_chapters(root, &en.id, &roster, CaptionLang::En)?;
+    seed_wrap(root, &meta.id, &roster)?;
+    seed_wrap(root, &en.id, &roster)?;
     Ok((
         crate::drafts::load(root, &meta.id)?,
         crate::drafts::load(root, &en.id)?,
     ))
+}
+
+/// English paperback wrap: Cobra front + matching back blurb. Type lives in the art.
+fn seed_wrap(root: &Path, id: &str, roster: &Roster) -> Result<(), String> {
+    let mut doc = CoverDoc::new(
+        roster.title_en.as_str(),
+        roster.author.as_str(),
+        "pb",
+        "8.5x11",
+        interior_pages(roster),
+        "premium",
+    );
+    doc.title.text.clear();
+    doc.author.text.clear();
+    doc.bg_front = "#1a120c".into();
+    doc.bg_back = "#1a120c".into();
+    doc.spine_bg = Some("#120c08".into());
+    let dir = draft_dir(root, id);
+    std::fs::create_dir_all(dir.join("assets")).map_err(|e| e.to_string())?;
+    let front = art_dir().join("cover-front.png");
+    if front.is_file() {
+        let bytes = std::fs::read(&front).map_err(|e| format!("read cover-front: {e}"))?;
+        std::fs::write(dir.join("cover.png"), &bytes).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join("assets").join("cover.png"), &bytes).map_err(|e| e.to_string())?;
+        doc.front_image = Some(png_data_uri(&bytes));
+    }
+    let back = art_dir().join("cover-back.png");
+    if back.is_file() {
+        let bytes = std::fs::read(&back).map_err(|e| format!("read cover-back: {e}"))?;
+        std::fs::write(dir.join("cover-back.png"), &bytes).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join("assets").join("cover-back.png"), &bytes)
+            .map_err(|e| e.to_string())?;
+        doc.back_image = Some(png_data_uri(&bytes));
+    }
+    save_cover(root, id, &doc.to_json())
+}
+
+fn png_data_uri(bytes: &[u8]) -> String {
+    format!(
+        "data:image/png;base64,{}",
+        crate::preflight::b64_encode(bytes)
+    )
 }
 
 fn write_chapters(root: &Path, id: &str, roster: &Roster, lang: CaptionLang) -> Result<(), String> {
@@ -95,12 +142,25 @@ fn car_md(car: &crate::coloring::Car, lang: CaptionLang) -> String {
         CaptionLang::En => car.why_en.as_str(),
     };
     let mut md = format!("> {why}\n\n");
+    let color = identity_png_name(car);
+    let color_href = if art_dir().join(&color).is_file() {
+        color
+    } else {
+        format!("{}-color.svg", crate::coloring_svg::car_slug(car))
+    };
+    md.push_str(&format!(
+        "![{} {} {} color](assets/{color_href})\n\n",
+        car.year, car.make, car.model
+    ));
     for (i, view) in views_for(car).into_iter().enumerate() {
-        let v = plate_file(car, i, Side::Verso);
-        let r = plate_file(car, i, Side::Recto);
+        let png = art_png_name(car, i);
+        let r = if art_dir().join(&png).is_file() {
+            png
+        } else {
+            plate_file(car, i, crate::coloring_svg::Side::Recto)
+        };
         let alt = format!("{} {} {} {:?}", car.year, car.make, car.model, view);
-        md.push_str(&format!("![{alt} verso](assets/{v})\n\n"));
-        md.push_str(&format!("![{alt} recto](assets/{r})\n\n"));
+        md.push_str(&format!("![{alt}](assets/{r})\n\n"));
     }
     md
 }
@@ -119,9 +179,9 @@ fn front_matter(roster: &Roster, lang: CaptionLang) -> Vec<(String, String)> {
             ),
             (
                 "Copyright".into(),
-                "## ©\n\nТекст і креслення — авторські силуети, не ліцензовані креслення заводів.\n\n\
-Штучний інтелект допоміг скласти чернетку; автор вичитав і відповідає за книгу.\n\n\
-Друк: Amazon KDP, paperback 8.5×11, чорно-білий інтер'єр на білому папері.\n"
+                "## ©\n\nТекст і контурні ілюстрації — оригінал цього видання, не заводські креслення.\n\n\
+Штучний інтелект допоміг намалювати пластини; автор вичитав і відповідає за книгу.\n\n\
+Друк: Amazon KDP, paperback 8.5×11, преміум-колір, без вильоту.\n"
                     .into(),
             ),
             (
@@ -132,8 +192,8 @@ fn front_matter(roster: &Roster, lang: CaptionLang) -> Vec<(String, String)> {
             (
                 "Як розмальовувати".into(),
                 "## Як розмальовувати\n\n\
-Олівець і крейда — на лицьовій (recto). Маркери просочують папір: підклади аркуш під зворот (verso).\n\n\
-Verso — не порожня сторінка: марка · модель · рік і герб гаража. Так KDP не бачить «зайвих бланків».\n\n\
+На кожну модель — одна кольорова сторінка (марка · модель · рік, один раз). Далі чотири контури: ¾, профіль, зад, фас — без повтору підпису.\n\n\
+Олівець і крейда на контурі. Маркери просочують папір: підклади аркуш.\n\n\
 Лінія ≥ 0.75 pt; у цьому виданні 1.25 pt.\n"
                     .into(),
             ),
@@ -147,7 +207,7 @@ Verso — не порожня сторінка: марка · модель · р
             (
                 "Тачки".into(),
                 format!(
-                    "## Тачки\n\nДвадцять чотири класи. Герої — три види, signature — два, прості — один. {} плейтів.\n",
+                    "## Тачки\n\nДвадцять чотири класи. На модель: 1 колір + 4 контури. {} контурних плейтів.\n",
                     plate_count(roster)
                 ),
             ),
@@ -162,9 +222,9 @@ Verso — не порожня сторінка: марка · модель · р
             ),
             (
                 "Copyright".into(),
-                "## ©\n\nText and drawings are original silhouettes, not licensed factory blueprints.\n\n\
-AI helped draft this book; the author reviewed it and is responsible for the work.\n\n\
-Print: Amazon KDP, paperback 8.5×11, black interior on white paper.\n"
+                "## ©\n\nText and contour illustrations are original to this edition, not factory blueprints.\n\n\
+AI helped draw the plates; the author reviewed them and is responsible for the work.\n\n\
+Print: Amazon KDP, paperback 8.5×11, premium color interior, no bleed.\n"
                     .into(),
             ),
             (
@@ -175,8 +235,8 @@ Print: Amazon KDP, paperback 8.5×11, black interior on white paper.\n"
             (
                 "How to color".into(),
                 "## How to color\n\n\
-Pencil and crayon on the recto. Markers bleed: slip a sheet under the verso.\n\n\
-The verso is not blank: make · model · year and the garage crest. KDP rejects runs of empty backs.\n\n\
+Each car opens with one color plate — make · model · year, once. Then four black contour views: three-quarter, profile, rear, front. No repeated captions. No badge plates.\n\n\
+Pencil and crayon on the contour. Markers bleed: slip a sheet underneath.\n\n\
 Line weight ≥ 0.75 pt; this edition draws at 1.25 pt.\n"
                     .into(),
             ),
@@ -196,7 +256,7 @@ Line weight ≥ 0.75 pt; this edition draws at 1.25 pt.\n"
             (
                 "The cars".into(),
                 format!(
-                    "## The cars\n\nTwenty-four classics. Heroes get three views, signature two, simple one. {} plates.\n",
+                    "## The cars\n\nTwenty-four classics. Each car: one color plate + four contour views. {} contour plates.\n",
                     plate_count(roster)
                 ),
             ),
@@ -213,10 +273,7 @@ where
         CaptionLang::En => String::from("## Contents\n\n"),
     };
     for c in cars {
-        md.push_str(&format!(
-            "{} · {} · {} — {} ×{}\n\n",
-            c.year, c.make, c.model, c.tier, c.plates
-        ));
+        md.push_str(&format!("{} · {} · {}\n\n", c.year, c.make, c.model));
     }
     md
 }
@@ -273,18 +330,31 @@ mod tests {
         assert_eq!(uk.source_language.as_deref(), Some("uk"));
         assert_eq!(uk.formats, vec!["paperback".to_string()]);
         assert_eq!(uk.trim.as_deref(), Some("8.5x11"));
-        assert_eq!(uk.pages, Some(104));
+        assert_eq!(uk.pages, Some(130));
         assert_eq!(uk.chapters.len(), 8 + 24 + 2);
         let c1 = chapter_content(&r, &uk.id, 1).unwrap();
         assert!(c1.contains("Класичні американські тачки"));
         let car = chapter_content(&r, &uk.id, 9).unwrap();
-        assert!(car.contains("](assets/1959-cadillac-eldorado-biarritz-p0-verso.svg)"));
-        assert!(car.contains("](assets/1959-cadillac-eldorado-biarritz-p0-recto.svg)"));
+        assert!(
+            car.contains("](assets/1959-cadillac-eldorado-biarritz-color.png)")
+                || car.contains("](assets/1959-cadillac-eldorado-biarritz-color.svg)"),
+            "color identity once"
+        );
+        assert!(
+            car.contains("](assets/1959-cadillac-eldorado-biarritz-p0-recto.svg)")
+                || car.contains("](assets/1959-cadillac-eldorado-biarritz-p0.png)"),
+            "first contour view"
+        );
+        assert!(
+            car.contains("p3.png") || car.contains("p3-recto.svg"),
+            "four contour views"
+        );
+        assert!(!car.contains("verso.svg"), "name is not repeated on versos");
         let svg = String::from_utf8(
-            load_asset(&r, &uk.id, "1959-cadillac-eldorado-biarritz-p0-verso.svg").unwrap(),
+            load_asset(&r, &uk.id, "1959-cadillac-eldorado-biarritz-color.svg").unwrap(),
         )
         .unwrap();
-        assert!(svg.contains("МАРКА"));
+        assert!(svg.contains("Cadillac") || svg.contains("identity"));
         assert_eq!(en.id, format!("{DRAFT_ID}-en"));
         assert_eq!(en.language, "en");
         assert_eq!(en.translation_of.as_deref(), Some(DRAFT_ID));
@@ -294,10 +364,25 @@ mod tests {
         assert!(en1.contains("Classic American Iron"));
         assert!(!en1.contains("Класичні"));
         let en_svg = String::from_utf8(
-            load_asset(&r, &en.id, "1959-cadillac-eldorado-biarritz-p0-verso.svg").unwrap(),
+            load_asset(&r, &en.id, "1959-cadillac-eldorado-biarritz-color.svg").unwrap(),
         )
         .unwrap();
-        assert!(en_svg.contains("MAKE"));
+        assert!(
+            en_svg.contains("MAKE") || en_svg.contains("identity") || en_svg.contains("Cadillac")
+        );
         assert_eq!(en.chapters.len(), uk.chapters.len());
+        if art_dir().join("cover-front.png").is_file() {
+            let cj = crate::drafts::load_cover(&r, &en.id).expect("en wrap");
+            let doc: CoverDoc = serde_json::from_str(&cj).unwrap();
+            assert_eq!(doc.pages, 130);
+            assert_eq!(doc.trim, "8.5x11");
+            assert_eq!(doc.mode, "pb");
+            assert!(doc.front_image.is_some());
+            assert!(doc.back_image.is_some());
+            assert!(doc.title.text.is_empty());
+            assert!(doc.spine_title.is_some(), "130 pages get spine text");
+            assert!(r.join(&en.id).join("cover.png").is_file());
+            assert!(r.join(&en.id).join("cover-back.png").is_file());
+        }
     }
 }

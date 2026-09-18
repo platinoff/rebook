@@ -1,7 +1,7 @@
 //! Cover Studio document model (`cover.json`) and compositor.
 //!
 //! A [`CoverDoc`] describes mode/trim/pages/paper plus a small, Canva-like
-//! layer stack (backgrounds, one optional front image, title/author/spine
+//! layer stack (backgrounds, optional front/back images, title/author/spine
 //! text). [`auto_layout`] derives positions from book metadata + the
 //! [`crate::standards`] safe zones (spine text only when pages > 79, content
 //! ≥ 0.25″ from trim). [`render_svg`] emits final artwork — no guide lines —
@@ -60,6 +60,9 @@ pub struct CoverDoc {
     /// full-front under the text layers.
     #[serde(default)]
     pub front_image: Option<String>,
+    /// Optional back-panel artwork as a `data:` URI (paperback wrap).
+    #[serde(default)]
+    pub back_image: Option<String>,
     /// ISBN for the cover barcode (RB-16b; None = zone left clear).
     #[serde(default)]
     pub isbn: Option<String>,
@@ -104,6 +107,7 @@ impl CoverDoc {
             bg_back: default_color(),
             spine_bg: None,
             front_image: None,
+            back_image: None,
             isbn: None,
             title: TextLayer {
                 text: title.into(),
@@ -271,6 +275,12 @@ impl CoverDoc {
                 px(h - 2.0 * edge),
                 esc(&spine_fill)
             ));
+            if let Some(img) = &self.back_image {
+                s.push_str(&format!(
+                    "  <image id=\"layer-image-back\" href=\"{img}\" x=\"{:.0}\" y=\"{:.0}\" width=\"{:.0}\" height=\"{:.0}\" preserveAspectRatio=\"xMidYMid slice\"/>\n",
+                    px(edge), px(edge), px(trim.w), px(h - 2.0 * edge)
+                ));
+            }
             if let Some(img) = &self.front_image {
                 s.push_str(&format!(
                     "  <image id=\"layer-image\" href=\"{img}\" x=\"{:.0}\" y=\"{:.0}\" width=\"{:.0}\" height=\"{:.0}\" preserveAspectRatio=\"xMidYMid slice\"/>\n",
@@ -291,6 +301,9 @@ impl CoverDoc {
         .flatten()
         .enumerate()
         {
+            if layer.text.trim().is_empty() {
+                continue;
+            }
             let lid = ["title", "author", "spine"][i];
             let off = self
                 .offsets
@@ -407,5 +420,22 @@ mod tests {
     fn ebook_gate_delegates() {
         assert!(ebook_size_ok(1600, 2560));
         assert!(!ebook_size_ok(800, 800));
+    }
+
+    #[test]
+    fn wrap_places_back_image_and_skips_empty_type() {
+        let mut d = CoverDoc::new("", "", "pb", "8.5x11", 60, "white");
+        d.title.text.clear();
+        d.author.text.clear();
+        d.front_image = Some("data:image/png;base64,AAA".into());
+        d.back_image = Some("data:image/png;base64,BBB".into());
+        d.auto_layout();
+        assert!(d.spine_title.is_none());
+        let svg = d.render_svg().unwrap();
+        assert!(svg.contains("id=\"layer-image-back\""));
+        assert!(svg.contains("id=\"layer-image\""));
+        assert!(svg.contains("BBB"));
+        assert!(!svg.contains("layer-title"));
+        assert!(!svg.contains("layer-author"));
     }
 }

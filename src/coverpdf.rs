@@ -195,48 +195,50 @@ pub fn render_wrap_pdf_opts(
 
     // RB-16c / RB-46: JPEG passthrough. RGB JPEGs stay DeviceRGB (KDP).
     // CMYK JPEGs (SOF nf=4) ride X-1a as DeviceCMYK. PNG/WebP still skip.
-    if let Some(uri) = doc.front_image.as_deref() {
-        let b64 = uri.split_once("base64,").map(|(_, r)| r).unwrap_or("");
-        match crate::drafts::b64_decode(b64) {
-            Ok(bytes) if bytes.starts_with(&[0xFF, 0xD8]) => {
-                match crate::preflight::jpeg_info(&bytes) {
-                    Some(info) => {
-                        let is_cmyk = info.space == crate::preflight::JpegSpace::Cmyk;
-                        let panel_h = if ebook { h } else { h - 2.0 * edge };
-                        let print_ok = ebook
-                            || crate::standards::print_art_ok(info.w, info.h, trim_w, panel_h);
-                        if cmyk != is_cmyk {
-                            rep.image_skipped = true;
-                        } else if !print_ok {
-                            rep.image_skipped = true;
-                            rep.image_low_dpi = true;
-                        } else {
-                            let idx = page.add_image_space(
-                                info.w,
-                                info.h,
-                                bytes,
-                                is_cmyk,
-                                is_cmyk && info.invert,
-                            );
-                            if ebook {
-                                page.draw_image_cover(idx, 0.0, 0.0, pt(w), pt(h));
-                            } else {
-                                page.draw_image_cover(
-                                    idx,
-                                    pt(edge + trim_w + spine),
-                                    0.0,
-                                    pt(trim_w),
-                                    pt(h),
-                                );
-                            }
-                            rep.image_placed = true;
-                        }
-                    }
-                    None => rep.image_skipped = true,
-                }
-            }
-            _ => rep.image_skipped = true,
-        }
+    let panel_h = if ebook { h } else { h - 2.0 * edge };
+    if !ebook {
+        place_jpeg(
+            &mut page,
+            doc.back_image.as_deref(),
+            pt(edge),
+            0.0,
+            pt(trim_w),
+            pt(h),
+            trim_w,
+            panel_h,
+            true,
+            cmyk,
+            &mut rep,
+        );
+    }
+    if ebook {
+        place_jpeg(
+            &mut page,
+            doc.front_image.as_deref(),
+            0.0,
+            0.0,
+            pt(w),
+            pt(h),
+            w,
+            h,
+            false,
+            cmyk,
+            &mut rep,
+        );
+    } else {
+        place_jpeg(
+            &mut page,
+            doc.front_image.as_deref(),
+            pt(edge + trim_w + spine),
+            0.0,
+            pt(trim_w),
+            pt(h),
+            trim_w,
+            panel_h,
+            true,
+            cmyk,
+            &mut rep,
+        );
     }
 
     // text layers — centre front panel, white; spine rotated 90°
@@ -328,6 +330,55 @@ pub fn render_wrap_pdf_opts(
     std::fs::write(out_path, &bytes).map_err(|e| format!("write pdf: {e}"))?;
     rep.bytes = bytes.len();
     Ok(rep)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn place_jpeg(
+    page: &mut PdfPageBuilder,
+    uri: Option<&str>,
+    x_pt: f64,
+    y_pt: f64,
+    w_pt: f64,
+    h_pt: f64,
+    panel_w_in: f64,
+    panel_h_in: f64,
+    require_print_dpi: bool,
+    cmyk: bool,
+    rep: &mut CoverPdfReport,
+) {
+    let Some(uri) = uri else {
+        return;
+    };
+    let b64 = uri.split_once("base64,").map(|(_, r)| r).unwrap_or("");
+    match crate::drafts::b64_decode(b64) {
+        Ok(bytes) if bytes.starts_with(&[0xFF, 0xD8]) => {
+            match crate::preflight::jpeg_info(&bytes) {
+                Some(info) => {
+                    let is_cmyk = info.space == crate::preflight::JpegSpace::Cmyk;
+                    let print_ok = !require_print_dpi
+                        || crate::standards::print_art_ok(info.w, info.h, panel_w_in, panel_h_in);
+                    if cmyk != is_cmyk {
+                        rep.image_skipped = true;
+                    } else if !print_ok {
+                        rep.image_skipped = true;
+                        rep.image_low_dpi = true;
+                    } else {
+                        let idx = page.add_image_space(
+                            info.w,
+                            info.h,
+                            bytes,
+                            is_cmyk,
+                            is_cmyk && info.invert,
+                        );
+                        page.draw_image_cover(idx, x_pt, y_pt, w_pt, h_pt);
+                        rep.image_placed = true;
+                    }
+                }
+                None => rep.image_skipped = true,
+            }
+        }
+        _ => rep.image_skipped = true,
+    }
 }
 
 #[cfg(test)]

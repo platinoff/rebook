@@ -56,7 +56,8 @@ pub struct PdfPageBuilder {
     /// Page height, points.
     pub h_pt: f64,
     ops: Vec<u8>,
-    pages: Vec<(f64, f64, Vec<u8>)>,
+    pages: Vec<(f64, f64, Vec<u8>, std::collections::BTreeSet<usize>)>,
+    page_images: std::collections::BTreeSet<usize>,
     embedded: Vec<EmbeddedFont>,
     used_cids: Vec<std::collections::BTreeSet<u16>>,
     images: Vec<RasterImage>,
@@ -71,6 +72,7 @@ impl PdfPageBuilder {
             h_pt,
             ops: Vec::new(),
             pages: Vec::new(),
+            page_images: Default::default(),
             embedded: Vec::new(),
             used_cids: Vec::new(),
             images: Vec::new(),
@@ -105,30 +107,56 @@ impl PdfPageBuilder {
     /// Draw image `idx` into the box (cover-fit / slice, centered overflow) with
     /// a clip, bottom-left origin, points.
     pub fn draw_image_cover(&mut self, idx: usize, x: f64, y: f64, w: f64, h: f64) {
+        self.blit_image(idx, x, y, w, h, true);
+    }
+
+    /// Draw image `idx` contained in the box (letterbox, no crop).
+    pub fn draw_image_contain(&mut self, idx: usize, x: f64, y: f64, w: f64, h: f64) {
+        self.blit_image(idx, x, y, w, h, false);
+    }
+
+    fn blit_image(&mut self, idx: usize, x: f64, y: f64, w: f64, h: f64, fill: bool) {
         let Some(im) = self.images.get(idx) else {
             return;
         };
         if im.w_px == 0 || im.h_px == 0 || w <= 0.0 || h <= 0.0 {
             return;
         }
+        self.page_images.insert(idx);
         let ia = im.w_px as f64 / im.h_px as f64;
         let ba = w / h;
-        let (sw, sh) = if ia > ba { (w, w / ia) } else { (h * ia, h) };
-        let ox = x - (sw - w) / 2.0;
-        let oy = y - (sh - h) / 2.0;
-        writeln!(self.ops, "q {:.4} {:.4} {:.4} {:.4} re W n", x, y, w, h).ok();
-        writeln!(
-            self.ops,
-            "q {:.5} 0 0 {:.5} {:.4} {:.4} cm /Im{idx} Do Q Q",
-            sw, sh, ox, oy
-        )
-        .ok();
+        let (sw, sh) = if fill {
+            if ia > ba { (h * ia, h) } else { (w, w / ia) }
+        } else if ia > ba {
+            (w, w / ia)
+        } else {
+            (h * ia, h)
+        };
+        let ox = x + (w - sw) / 2.0;
+        let oy = y + (h - sh) / 2.0;
+        if fill {
+            writeln!(self.ops, "q {:.4} {:.4} {:.4} {:.4} re W n", x, y, w, h).ok();
+            writeln!(
+                self.ops,
+                "q {:.5} 0 0 {:.5} {:.4} {:.4} cm /Im{idx} Do Q Q",
+                sw, sh, ox, oy
+            )
+            .ok();
+        } else {
+            writeln!(
+                self.ops,
+                "q {:.5} 0 0 {:.5} {:.4} {:.4} cm /Im{idx} Do Q",
+                sw, sh, ox, oy
+            )
+            .ok();
+        }
     }
 
     /// Finish the current page and start another one of the given size.
     pub fn new_page(&mut self, w_pt: f64, h_pt: f64) {
         let ops = std::mem::take(&mut self.ops);
-        self.pages.push((self.w_pt, self.h_pt, ops));
+        let used = std::mem::take(&mut self.page_images);
+        self.pages.push((self.w_pt, self.h_pt, ops, used));
         self.w_pt = w_pt;
         self.h_pt = h_pt;
     }
@@ -317,7 +345,7 @@ impl PdfPageBuilder {
     /// Finish: bytes of the whole PDF document (all rolled + current page).
     pub fn build(self, title: &str) -> Vec<u8> {
         let mut all_pages = self.pages;
-        all_pages.push((self.w_pt, self.h_pt, self.ops));
+        all_pages.push((self.w_pt, self.h_pt, self.ops, self.page_images));
         let k = all_pages.len();
         let emb = &self.embedded;
         let used = &self.used_cids;
@@ -344,7 +372,7 @@ impl PdfPageBuilder {
         };
         let n_objs = last_obj;
         let mut out = Vec::new();
-        out.extend_from_slice(b"%PDF-1.4\n");
+        out.extend_from_slice(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n");
         let mut offsets = Vec::with_capacity(n_objs as usize);
         let obj = |buf: &mut Vec<u8>, offs: &mut Vec<usize>, n: u32, body: &[u8]| {
             offs.push(buf.len());
@@ -359,43 +387,50 @@ impl PdfPageBuilder {
             None => "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
         };
         obj(&mut out, &mut offsets, 1, catalog.as_bytes());
-        let kids: Vec<String> = (0..k).map(|p| format!("{} 0 R", 3 + 2 * p)).collect();
+        let mut kids = String::from("[");
+        for p in 0..k {
+            if p.is_multiple_of(8) {
+                kids.push('\n');
+            }
+            kids.push_str(&format!("{} 0 R ", 3 + 2 * p));
+        }
+        kids.push(']');
         obj(
             &mut out,
             &mut offsets,
             2,
-            format!("<< /Type /Pages /Kids [{}] /Count {k} >>", kids.join(" ")).as_bytes(),
+            format!("<< /Type /Pages /Kids {kids} /Count {k} >>").as_bytes(),
         );
         let mut fonts = format!("/F1 {f1} 0 R");
         for i in 0..e {
             fonts.push_str(&format!(" /F{} {} 0 R", 2 + i, base + 1 + 4 * i as u32));
         }
-        let mut xobjs = String::new();
-        if ni > 0 {
-            xobjs.push_str(" /XObject <<");
-            for i in 0..ni {
-                xobjs.push_str(&format!(" /Im{i} {} 0 R", img0 + i));
-            }
-            xobjs.push_str(" >>");
-        }
-        let resources = format!("<< /Font << {fonts} >>{xobjs} >>");
-        for (p, (w, h, content)) in all_pages.iter().enumerate() {
+        for (p, (w, h, content, imgs)) in all_pages.iter().enumerate() {
             let page_no = 3 + 2 * p as u32;
             let cont_no = 4 + 2 * p as u32;
+            let mut xobjs = String::new();
+            if !imgs.is_empty() {
+                xobjs.push_str(" /XObject <<");
+                for i in imgs {
+                    xobjs.push_str(&format!(" /Im{i} {} 0 R", img0 + *i as u32));
+                }
+                xobjs.push_str(" >>");
+            }
+            let resources =
+                format!("<< /ProcSet [/PDF /Text /ImageC] /Font << {fonts} >>{xobjs} >>");
             let mut page = format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}]",
-                w, h
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /CropBox [0 0 {:.4} {:.4}]",
+                w, h, w, h
             );
             if let Some(x) = &px {
                 let trim = x.trim.unwrap_or((0.0, 0.0, *w, *h));
                 page.push_str(&format!(
-                    " /BleedBox [0 0 {:.4} {:.4}] /TrimBox [{:.4} {:.4} {:.4} {:.4}] /CropBox [0 0 {:.4} {:.4}]",
-                    w, h, trim.0, trim.1, trim.2, trim.3, w, h
+                    " /BleedBox [0 0 {:.4} {:.4}] /TrimBox [{:.4} {:.4} {:.4} {:.4}]",
+                    w, h, trim.0, trim.1, trim.2, trim.3
                 ));
             }
             page.push_str(&format!(
-                " /Resources {} /Contents {} 0 R >>",
-                resources, cont_no
+                " /Resources {resources} /Contents {cont_no} 0 R >>"
             ));
             obj(&mut out, &mut offsets, page_no, page.as_bytes());
             let stream_hdr = format!("<< /Length {} >>\nstream\n", content.len());
@@ -656,6 +691,36 @@ mod tests {
             .parse()
             .unwrap();
         assert!(off < bytes.len());
+    }
+
+    fn obj_slice(s: &str, n: u32) -> &str {
+        let start = s.find(&format!("{n} 0 obj")).expect("obj");
+        let rest = &s[start..];
+        let end = rest.find("endobj").expect("endobj");
+        &rest[..end]
+    }
+
+    #[test]
+    fn each_page_lists_only_its_images() {
+        let mut p = PdfPageBuilder::new(612.0, 792.0);
+        let i0 = p.add_image(8, 8, crate::preflight::stub_rgb_jpeg(8, 8));
+        p.draw_image_cover(i0, 0.0, 0.0, 200.0, 200.0);
+        p.new_page(612.0, 792.0);
+        let i1 = p.add_image(16, 16, crate::preflight::stub_rgb_jpeg(16, 16));
+        p.draw_image_cover(i1, 0.0, 0.0, 200.0, 200.0);
+        let bytes = p.build("pages");
+        let s = String::from_utf8_lossy(&bytes).into_owned();
+        let p0 = obj_slice(&s, 3);
+        let p1 = obj_slice(&s, 5);
+        assert!(p0.contains("/Im0"), "page 0 must reference Im0");
+        assert!(
+            !p0.contains("/Im1"),
+            "page 0 must not pull Im1 (KDP previewer OOM)"
+        );
+        assert!(p1.contains("/Im1"), "page 1 must reference Im1");
+        assert!(!p1.contains("/Im0"), "page 1 must not pull Im0");
+        let doc = lopdf::Document::load_mem(&bytes).expect("lopdf");
+        assert_eq!(doc.get_pages().len(), 2);
     }
 
     #[test]

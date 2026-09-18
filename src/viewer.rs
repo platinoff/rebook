@@ -553,8 +553,8 @@ pub struct NavItem {
     pub tip_en: &'static str,
 }
 
-/// The five primary zones for the shared top navigation.
-pub const NAV_ITEMS: [NavItem; 5] = [
+/// The six primary zones for the shared top navigation.
+pub const NAV_ITEMS: [NavItem; 6] = [
     NavItem {
         href: "/",
         uk: "Полиця",
@@ -575,6 +575,13 @@ pub const NAV_ITEMS: [NavItem; 5] = [
         en: "Covers",
         tip_uk: "Шаблони wrap: ebook / paperback / hardcover",
         tip_en: "Wrap templates: ebook / paperback / hardcover",
+    },
+    NavItem {
+        href: "/kdp",
+        uk: "KDP",
+        en: "KDP",
+        tip_uk: "Локальний Print Previewer: wrap + interior, гайди, розмір файлів",
+        tip_en: "Local Print Previewer: wrap + interior, guides, file size",
     },
     NavItem {
         href: "/view3d",

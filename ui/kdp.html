@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Print Previewer — rebook</title>
+<link rel="stylesheet" href="/styles.css"/>
+<style>
+:root{--kdp-bg:#3a3a3a;--kdp-panel:#2b2b2b;--kdp-err:#c4554d;--kdp-ok:#2f6f4e;--guide:#c4554d;}
+html,body{margin:0;height:100%;background:var(--kdp-bg);color:#eee;font:13px/1.4 system-ui,"Segoe UI",sans-serif}
+#kdp-app{display:flex;flex-direction:column;min-height:calc(100vh - 48px)}
+.kdp-top{display:flex;align-items:center;gap:1.2em;padding:.45em 1em;background:#f3f1ed;color:#222;border-bottom:1px solid #ccc}
+.kdp-top h1{font-size:1.05em;margin:0;font-weight:700;color:#c45500}
+.kdp-top .meta{color:#555;font-size:.9em}
+.kdp-top .grow{flex:1}
+.kdp-top a.help{color:#0066c0;text-decoration:none;font-size:.85em}
+.kdp-body{display:grid;grid-template-columns:280px 1fr;flex:1;min-height:0}
+.kdp-side{background:#1e1e1e;overflow:auto;padding:.8em;border-right:1px solid #111}
+.kdp-side h2{margin:0 0 .5em;font-size:.75em;letter-spacing:.08em;color:#f85149}
+.issue{border:1px solid #c4554d;background:#3a2220;border-radius:6px;padding:.7em .75em;margin:0 0 .7em;cursor:pointer}
+.issue.warn{border-color:#b08800;background:#3a3420}
+.issue h3{margin:0 0 .35em;font-size:.9em;color:#ff7b72}
+.issue p{margin:0;color:#d0d0d0;font-size:.8em}
+.issue .ok-banner{border:1px solid #2f6f4e;background:#163027;color:#3fb950;padding:.7em;border-radius:6px}
+.kdp-main{display:flex;flex-direction:column;min-width:0}
+.stage-wrap{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:1.2em;background:#2f2f2f}
+#stage{position:relative;display:inline-block;background:#111;box-shadow:0 8px 40px #0008}
+#stage canvas{display:block;background:#fff}
+.guides{position:absolute;inset:0;pointer-events:none}
+.guides svg{width:100%;height:100%;display:block}
+.thumbs{display:flex;gap:.4em;overflow-x:auto;padding:.5em .8em;background:#252525;border-top:1px solid #111;min-height:92px}
+.thumbs canvas,.thumbs .t{height:76px;width:auto;background:#fff;cursor:pointer;border:2px solid transparent;border-radius:2px}
+.thumbs .t.on,.thumbs canvas.on{border-color:#7aa2f7}
+.kdp-bar{display:flex;align-items:center;gap:.8em;flex-wrap:wrap;padding:.45em .8em;background:#1a1a1a;border-top:1px solid #333}
+.kdp-bar label{display:flex;align-items:center;gap:.35em;color:#bbb;font-size:.85em}
+.kdp-bar button{background:#333;color:#eee;border:1px solid #555;border-radius:4px;padding:.35em .7em;cursor:pointer}
+.kdp-bar button.on{background:#c45500;border-color:#c45500;color:#fff}
+.kdp-bar button.approve{margin-left:auto;background:#2f6f4e;border-color:#2f6f4e;color:#fff;font-weight:700}
+.kdp-bar button.approve:disabled{opacity:.45;cursor:not-allowed}
+.kdp-bar input[type=number]{width:4.2em;background:#111;color:#eee;border:1px solid #444;border-radius:4px;padding:.2em .4em}
+.status{padding:.4em .8em;color:#9aa0ac;font-size:.85em}
+</style>
+</head>
+<body>
+<!--rbnav-->
+<div id="kdp-app">
+ <header class="kdp-top">
+  <h1>Print Previewer</h1>
+  <div>
+   <strong id="bookTitle">Classic American Iron</strong>
+   <div class="meta" id="bookBy">Paperback</div>
+  </div>
+  <span class="grow"></span>
+  <span class="meta" id="loadStat"></span>
+ </header>
+ <div class="kdp-body">
+  <aside class="kdp-side">
+   <h2>ERROR</h2>
+   <p class="meta" style="color:#aaa;margin:0 0 .8em">If your book has errors, it won't meet our quality standards. Fix them before uploading to KDP.</p>
+   <div id="issues"></div>
+  </aside>
+  <div class="kdp-main">
+   <p class="status" id="stat">Loading package…</p>
+   <div class="stage-wrap"><div id="stage"><div class="guides" id="guides" hidden></div></div></div>
+   <div class="thumbs" id="thumbs"></div>
+   <div class="kdp-bar">
+    <button id="btnTwo" class="on" type="button">Two Page View</button>
+    <button id="btnThumb" type="button">Thumbnail view</button>
+    <label>Page Range
+     <select id="range"><option value="cover">Cover</option></select>
+    </label>
+    <button id="prev" type="button">←</button>
+    <input id="pageNo" type="number" min="0" value="0"/>
+    <span id="pageOf">/ 0</span>
+    <button id="next" type="button">→</button>
+    <label><input id="showGuides" type="checkbox" checked/> Guides</label>
+    <button class="approve" id="approve" type="button" disabled>Approve</button>
+   </div>
+  </div>
+ </div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+let meta=null, coverPdf=null, interiorPdf=null, mode='cover', page=0, two=true;
+const STAGE=$('#stage');
+function hasPdf(){return typeof pdfjsLib!=='undefined';}
+function readyPdf(){
+  if(!hasPdf())return Promise.reject(new Error('pdf.js not loaded'));
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  return Promise.resolve();
+}
+
+function issueHtml(list){
+  if(!list.length){
+    return '<div class="ok-banner">No local KDP errors on file size, page count, or margin operators. Amazon still runs Print Previewer after upload.</div>';
+  }
+  return list.map(i=>`<article class="issue${i.error?'':' warn'}"><h3>${esc(i.title)}</h3><p>${esc(i.detail)}</p></article>`).join('');
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));}
+
+async function boot(){
+  const r=await fetch('/api/kdp');
+  meta=await r.json();
+  $('#bookTitle').textContent=meta.title;
+  $('#bookBy').textContent='Paperback · '+meta.author+' · '+meta.pages+' pages · '+meta.paper;
+  $('#issues').innerHTML=issueHtml(meta.issues||[]);
+  $('#approve').disabled=(meta.issues||[]).some(i=>i.error);
+  const sel=$('#range');
+  sel.innerHTML='<option value="cover">Cover</option>';
+  for(let i=1;i<=meta.pages;i++){
+    const o=document.createElement('option');o.value=String(i);o.textContent=i;sel.appendChild(o);
+  }
+  $('#pageOf').textContent='/ '+meta.pages;
+  $('#stat').textContent='Opening files…';
+  await show();
+  try{
+    await new Promise((resolve,reject)=>{
+      if(hasPdf()){resolve();return;}
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      s.onload=resolve;s.onerror=reject;document.head.appendChild(s);
+    });
+    await readyPdf();
+    if(meta.has_wrap){
+      const buf=await (await fetch('/kdp/cover-wrap.pdf')).arrayBuffer();
+      coverPdf=await pdfjsLib.getDocument({data:buf}).promise;
+      if(mode==='cover') await show();
+    }
+    if(meta.has_interior){
+      const buf=await (await fetch('/kdp/interior.pdf')).arrayBuffer();
+      interiorPdf=await pdfjsLib.getDocument({data:buf}).promise;
+    }
+  }catch(e){
+    $('#stat').textContent='PDF engine skipped ('+e.message+'). Showing JPEG wrap + plates.';
+  }
+  if(!$('#stat').textContent.startsWith('PDF engine')) $('#stat').textContent='';
+  if(mode!=='cover') await show();
+  buildThumbs();
+}
+
+function pageOf(){return +$('#pageNo').value||0;}
+
+async function renderPage(pdf, n, scale){
+  const p=await pdf.getPage(n);
+  const vp=p.getViewport({scale});
+  const c=document.createElement('canvas');
+  c.width=vp.width;c.height=vp.height;
+  await p.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+  return c;
+}
+
+function fitScale(wIn,hIn,maxW,maxH){
+  const pxW=maxW, pxH=maxH;
+  return Math.min(pxW/(wIn*96), pxH/(hIn*96), 1.6);
+}
+
+async function plateFace(n, maxW, maxH){
+  const scale=Math.min((maxW)/(8.5*72),(maxH)/(11*72),2);
+  if(interiorPdf){
+    return renderPage(interiorPdf,n,scale);
+  }
+  const info=(meta.plates||[]).find(p=>p.n===n);
+  const box=document.createElement('div');
+  box.style.width=Math.round(8.5*72*scale)+'px';
+  box.style.height=Math.round(11*72*scale)+'px';
+  box.style.background='#fff';
+  box.style.position='relative';
+  box.style.overflow='hidden';
+  box.style.flex='0 0 auto';
+  if(info&&info.jpeg){
+    const img=document.createElement('img');
+    img.src='/kdp/jpeg/'+info.jpeg;
+    img.style.cssText='position:absolute;left:8%;top:6%;width:84%;height:86%;object-fit:contain';
+    box.appendChild(img);
+  }else{
+    const t=document.createElement('div');
+    t.style.cssText='padding:12% 10%;color:#222;font:16px/1.4 Georgia,serif';
+    t.textContent='Page '+n+' · text';
+    box.appendChild(t);
+  }
+  const folio=document.createElement('div');
+  folio.style.cssText='position:absolute;bottom:28px;width:100%;text-align:center;color:#333;font:11px system-ui';
+  folio.textContent=String(n);
+  box.appendChild(folio);
+  return box;
+}
+
+async function show(){
+  [...STAGE.children].forEach(el=>{if(!el.classList.contains('guides'))el.remove();});
+  const guides=$('#guides');
+  const maxW=STAGE.parentElement.clientWidth-48;
+  const maxH=window.innerHeight-260;
+  if(mode==='cover'){
+    $('#pageNo').value=0;
+    $('#range').value='cover';
+    if(coverPdf){
+      const w=meta.expected_wrap_w,h=meta.expected_wrap_h;
+      const scale=Math.min((maxW)/(w*72),(maxH)/(h*72),2);
+      const c=await renderPage(coverPdf,1,scale);
+      STAGE.insertBefore(c,guides);
+      drawCoverGuides(c.width,c.height);
+    }else{
+      await showJpegWrap(maxW,maxH);
+    }
+  }else{
+    const n=Math.max(1,Math.min(meta.pages,pageOf()||1));
+    page=n;$('#pageNo').value=n;$('#range').value=String(n);
+    const wrap=document.createElement('div');
+    wrap.style.display='flex';wrap.style.gap='0';
+    if(two){
+      const left=n%2===0?n:n-1;
+      const right=left+1;
+      if(left>=1) wrap.appendChild(await plateFace(left,maxW/2,maxH));
+      else {
+        const ph=await plateFace(1,maxW/2,maxH);
+        ph.style.visibility='hidden';
+        wrap.appendChild(ph);
+      }
+      if(right<=meta.pages) wrap.appendChild(await plateFace(right,maxW/2,maxH));
+      STAGE.insertBefore(wrap,guides);
+      const w=wrap.scrollWidth,h=wrap.scrollHeight||(wrap.firstChild&&wrap.firstChild.offsetHeight)||400;
+      drawInteriorGuides(w,h,true,left);
+    }else{
+      const el=await plateFace(n,maxW,maxH);
+      STAGE.insertBefore(el,guides);
+      const w=el.width||el.offsetWidth,h=el.height||el.offsetHeight;
+      drawInteriorGuides(w,h,false,n);
+    }
+  }
+  paintGuides();
+  markThumb();
+}
+
+async function showJpegWrap(maxW,maxH){
+  const w=meta.expected_wrap_w,h=meta.expected_wrap_h;
+  const scale=Math.min(maxW/(w*96),maxH/(h*96),1.4);
+  const c=document.createElement('canvas');
+  c.width=w*96*scale;c.height=h*96*scale;
+  const g=c.getContext('2d');
+  g.fillStyle='#1a120c';g.fillRect(0,0,c.width,c.height);
+  const bleed=0.125, trim=8.5, spine=meta.spine_in;
+  const px=v=>v*96*scale;
+  const back=await loadImg('/kdp/jpeg/cover-back.jpg');
+  const front=await loadImg('/kdp/jpeg/cover-front.jpg');
+  if(back.width) g.drawImage(back,px(bleed),0,px(trim),c.height);
+  if(front.width) g.drawImage(front,px(bleed+trim+spine),0,px(trim),c.height);
+  STAGE.insertBefore(c,$('#guides'));
+  drawCoverGuides(c.width,c.height);
+}
+
+function drawCoverGuides(w,h){
+  const m=meta;
+  const bleed=0.125, trimW=8.5, trimH=11, spine=m.spine_in;
+  const fullW=m.expected_wrap_w, fullH=m.expected_wrap_h;
+  const X=u=>u/fullW*w, Y=v=>v/fullH*h;
+  const sx=X(bleed+trimW), sy=Y(bleed);
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+   <rect x="${X(bleed)}" y="${Y(bleed)}" width="${X(trimW+spine+trimW)-X(bleed)}" height="${Y(trimH)}" fill="none" stroke="#c4554d" stroke-dasharray="6 4" stroke-width="1.5"/>
+   <rect x="${sx}" y="${sy}" width="${X(spine)-X(0)}" height="${Y(trimH)}" fill="none" stroke="#6ea8fe" stroke-width="1.2"/>
+   <rect x="${X(bleed+trimW-0.25-m.barcode_w)}" y="${Y(fullH-bleed-0.25-m.barcode_h)}" width="${X(m.barcode_w)}" height="${Y(m.barcode_h)}" fill="none" stroke="#3fb950" stroke-width="1.2"/>
+  </svg>`;
+  $('#guides').innerHTML=svg;
+}
+function drawInteriorGuides(w,h,spread,leftPage){
+  const out=meta.outside_in, gut=meta.gutter_in, trimW=8.5, trimH=11;
+  const pageW=spread?w/2:w;
+  function one(x0,verso){
+    const left=verso?out:gut, right=verso?gut:out;
+    const X=u=>x0+u/trimW*pageW, Y=v=>v/trimH*h;
+    return `<rect x="${X(left)}" y="${Y(out)}" width="${X(trimW-right)-X(left)}" height="${Y(trimH-2*out)-Y(out)}" fill="none" stroke="#c4554d" stroke-dasharray="6 4" stroke-width="1.2"/>`;
+  }
+  let body='';
+  if(spread){
+    const left=leftPage>=1?leftPage:0;
+    body+=one(0,true);
+    body+=one(pageW,false);
+    if(left){/* verso left */}
+  }else{
+    const verso=page%2===0;
+    body+=one(0,verso);
+  }
+  $('#guides').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${body}</svg>`;
+}
+function loadImg(src){
+  return new Promise(r=>{
+    const im=new Image();
+    im.onload=()=>r(im);
+    im.onerror=()=>r(im);
+    im.src=src;
+  });
+}
+function paintGuides(){
+  $('#guides').hidden=!$('#showGuides').checked;
+}
+
+async function buildThumbs(){
+  const box=$('#thumbs');box.innerHTML='';
+  const io=new IntersectionObserver(async entries=>{
+    for(const e of entries){
+      if(!e.isIntersecting)continue;
+      const c=e.target;if(c.dataset.done)continue;c.dataset.done='1';
+      const key=c.dataset.key;
+      try{
+        let src=null;
+        if(key==='Cover'){
+          src=coverPdf?await renderPage(coverPdf,1,0.08):null;
+          if(!src){
+            const im=new Image();
+            await new Promise(r=>{im.onload=r;im.onerror=r;im.src='/kdp/jpeg/cover-front.jpg';});
+            if(im.width){c.width=54;c.height=76;c.getContext('2d').drawImage(im,0,0,54,76);}
+            continue;
+          }
+        }else if(interiorPdf){
+          src=await renderPage(interiorPdf,+key,0.09);
+        }else{
+          const info=(meta.plates||[]).find(p=>p.n===+key);
+          if(info&&info.jpeg){
+            const im=new Image();
+            await new Promise(r=>{im.onload=r;im.onerror=r;im.src='/kdp/jpeg/'+info.jpeg;});
+            if(im.width){c.width=54;c.height=76;c.getContext('2d').drawImage(im,0,0,54,76);}
+          }
+          continue;
+        }
+        if(!src)continue;
+        c.width=src.width;c.height=src.height;c.getContext('2d').drawImage(src,0,0);
+      }catch(_e){}
+    }
+  },{root:box,threshold:0.1});
+  const add=label=>{
+    const t=document.createElement('canvas');t.className='t';t.title=label;t.dataset.key=label;
+    t.width=54;t.height=76;
+    t.onclick=()=>{if(label==='Cover'){mode='cover';page=0;}else{mode='page';$('#pageNo').value=label;}show();};
+    box.appendChild(t);io.observe(t);
+  };
+  add('Cover');
+  for(let i=1;i<=meta.pages;i++) add(String(i));
+  markThumb();
+}
+function markThumb(){
+  const key=mode==='cover'?'Cover':String(pageOf()||page);
+  document.querySelectorAll('#thumbs canvas').forEach(c=>c.classList.toggle('on',c.dataset.key===key));
+}
+
+$('#btnTwo').onclick=()=>{two=true;$('#btnTwo').classList.add('on');$('#btnThumb').classList.remove('on');show();};
+$('#btnThumb').onclick=()=>{two=false;$('#btnTwo').classList.remove('on');$('#btnThumb').classList.add('on');show();};
+$('#showGuides').onchange=paintGuides;
+$('#range').onchange=()=>{
+  const v=$('#range').value;
+  if(v==='cover'){mode='cover';page=0;}else{mode='page';page=+v;$('#pageNo').value=page;}
+  show();
+};
+$('#pageNo').onchange=()=>{mode='page';page=+$('#pageNo').value;show();};
+$('#prev').onclick=()=>{
+  if(mode==='cover')return;
+  page=Math.max(1,pageOf()- (two?2:1));$('#pageNo').value=page;show();
+};
+$('#next').onclick=()=>{
+  if(mode==='cover'){mode='page';page=1;$('#pageNo').value=1;show();return;}
+  page=Math.min(meta.pages,pageOf()+(two?2:1));$('#pageNo').value=page;show();
+};
+$('#approve').onclick=()=>alert('Local preview only. Upload interior.pdf + cover-wrap.pdf on KDP, then Approve there.');
+boot().catch(e=>{$('#stat').textContent=String(e);});
+</script>
+</body>
+</html>

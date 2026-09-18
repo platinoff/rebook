@@ -1,6 +1,6 @@
 //! The one portable web service: axum router over the viewer plus the
 //! product areas — `/` shelf & reader (viewer routes), `/studio`, `/cover`,
-//! and `/api/*` (books JSON, live cover-template SVG). Loopback only.
+//! `/kdp` (local Print Previewer), and `/api/*` (books JSON, live cover-template SVG). Loopback only.
 //!
 //! UI pages are embedded at compile time (`include_str!`), so the release is
 //! a single self-contained executable — no sidecar assets, no node.
@@ -81,6 +81,7 @@ const STUDIO_HTML: &str = include_str!("../ui/studio.html");
 const COVER_HTML: &str = include_str!("../ui/cover.html");
 const PRODUCTS_HTML: &str = include_str!("../ui/products.html");
 const VIEW3D_HTML: &str = include_str!("../ui/view3d.html");
+const KDP_HTML: &str = include_str!("../ui/kdp.html");
 
 /// Build the router over a frozen set of discovered books.
 pub fn router(state: Arc<AppState>) -> Router {
@@ -88,6 +89,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/health", get(health))
         .route("/studio", get(studio_page))
         .route("/cover", get(cover_page))
+        .route("/kdp", get(kdp_page))
+        .route("/kdp/interior.pdf", get(kdp_interior_pdf))
+        .route("/kdp/cover-wrap.pdf", get(kdp_wrap_pdf))
+        .route("/kdp/jpeg/{name}", get(kdp_jpeg))
+        .route("/api/kdp", get(api_kdp))
         .route("/products", get(products_page))
         .route("/view3d", get(view3d_page))
         .route("/api/products", get(api_products))
@@ -140,7 +146,9 @@ pub async fn serve_web(books: Vec<LoadedBook>, addr: &str) -> Result<(), String>
         products_root: std::path::PathBuf::from("products"),
     });
     println!("rebook web service: http://{addr}/");
-    println!("  / — полиця/читалка · /studio — чернетки · /cover — обкладинки");
+    println!(
+        "  / — полиця/читалка · /studio — чернетки · /cover — обкладинки · /kdp — print previewer"
+    );
     for b in &state.books {
         println!("  /{id} — {title}", id = b.id, title = b.book.title);
     }
@@ -164,6 +172,69 @@ async fn studio_page() -> Html<String> {
 
 async fn cover_page() -> Html<String> {
     Html(crate::viewer::inject_nav(COVER_HTML, "/cover"))
+}
+
+async fn kdp_page() -> Html<String> {
+    Html(crate::viewer::inject_nav(KDP_HTML, "/kdp"))
+}
+
+async fn api_kdp() -> Response {
+    Json(crate::coloring_kdp::preview_meta(
+        &crate::coloring_kdp::default_dir(),
+    ))
+    .into_response()
+}
+
+fn kdp_file(path: std::path::PathBuf, mime: &'static str, name: &str) -> Response {
+    match std::fs::read(&path) {
+        Ok(bytes) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime)
+            .header(
+                header::CONTENT_DISPOSITION,
+                format!("inline; filename=\"{name}\""),
+            )
+            .header(header::CACHE_CONTROL, "no-store")
+            .body(axum::body::Body::from(bytes))
+            .unwrap_or_default(),
+        Err(_) => (StatusCode::NOT_FOUND, "missing coloring-kdp file").into_response(),
+    }
+}
+
+async fn kdp_interior_pdf() -> Response {
+    kdp_file(
+        crate::coloring_kdp::default_dir().join("interior.pdf"),
+        "application/pdf",
+        "interior.pdf",
+    )
+}
+
+async fn kdp_wrap_pdf() -> Response {
+    kdp_file(
+        crate::coloring_kdp::default_dir().join("cover-wrap.pdf"),
+        "application/pdf",
+        "cover-wrap.pdf",
+    )
+}
+
+fn jpeg_name_ok(name: &str) -> bool {
+    name.ends_with(".jpg")
+        && !name.contains(['/', '\\'])
+        && !name.contains("..")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_')
+}
+
+async fn kdp_jpeg(AxPath(name): AxPath<String>) -> Response {
+    if !jpeg_name_ok(&name) {
+        return (StatusCode::BAD_REQUEST, "bad jpeg name").into_response();
+    }
+    kdp_file(
+        crate::coloring_kdp::default_dir().join("jpeg").join(name),
+        "image/jpeg",
+        "plate.jpg",
+    )
 }
 
 async fn products_page() -> Html<String> {
@@ -903,6 +974,12 @@ mod tests {
         let (s, b) = get(router(fixture_state()), "/cover").await;
         assert_eq!(s, StatusCode::OK);
         assert!(b.contains("id=\"cover-app\""));
+        let (s, b) = get(router(fixture_state()), "/kdp").await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(b.contains("id=\"kdp-app\""));
+        let (s, b) = get(router(fixture_state()), "/api/kdp").await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(b.contains("expected_wrap"));
         let (s, b) = get(router(fixture_state()), "/api/ai").await;
         assert_eq!(s, StatusCode::OK);
         assert!(b.contains("\"enabled\""));
@@ -1426,6 +1503,16 @@ mod tests {
         assert!(h.contains("class=\"plate\""));
         assert!(h.contains("plateHref"));
         assert!(h.contains("/api/drafts/'+"));
+    }
+
+    #[test]
+    fn kdp_html_is_print_previewer() {
+        let h = include_str!("../ui/kdp.html");
+        assert!(h.contains("id=\"kdp-app\""));
+        assert!(h.contains("Print Previewer"));
+        assert!(h.contains("/kdp/cover-wrap.pdf"));
+        assert!(h.contains("/kdp/jpeg/"));
+        assert!(h.contains("Guides"));
     }
 
     #[test]

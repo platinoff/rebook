@@ -73,7 +73,8 @@
   <label>Back bg<input id="sbg2" type="color" value="#1d2733"/></label>
   <label>Spine bg<input id="sspine" type="color" value="#16202c"/></label>
   <label><span data-uk="Текст корінця" data-en="Spine text">Текст корінця</span><select id="sspinetxt"><option value="on">auto (pages&gt;79)</option><option value="off" data-uk="вимкнено" data-en="off">вимкнено</option></select></label>
-  <label><span data-uk="Обкладинка-картинка" data-en="Cover image">Обкладинка-картинка</span><input id="simg" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"/></label>
+  <label><span data-uk="Лицьова картинка" data-en="Front image">Лицьова картинка</span><input id="simg" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"/></label>
+  <label><span data-uk="Задня картинка" data-en="Back image">Задня картинка</span><input id="simg2" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"/></label>
  </form>
  <div class="bar" style="display:flex;gap:.5em;margin-top:.6em;flex-wrap:wrap;">
   <button id="renderBtn" data-uk="Рендер" data-en="Render">Рендер</button>
@@ -147,7 +148,7 @@ $('#f').addEventListener('submit',async ev=>{
  const dl=$('#dl');dl.hidden=false;dl.href='data:image/svg+xml;utf8,'+encodeURIComponent(svg);
 });
 // --- studio tab (RB-9) ---
-let doc=null,imgData=null;
+let doc=null,imgData=null,backImgData=null;
 async function boot(){
  try{
   const drafts=await (await fetch('/api/drafts')).json();
@@ -165,7 +166,7 @@ $('#draftSel').onchange=async()=>{
 function collect(){
  doc={mode:$('#smode').value,trim:$('#strim').value,pages:+$('#spages').value,paper:'white',
   bg_front:$('#sbg').value,bg_back:$('#sbg2').value,
-  spine_bg:$('#sspine').value,front_image:imgData,
+  spine_bg:$('#sspine').value,front_image:imgData,back_image:backImgData,
   title:{text:$('#stitle').value||' ',x:0,y:0,pt:36,color:'#ffffff',spine:false},
   author:{text:'by '+($('#sauthor').value||''),x:0,y:0,pt:18,color:'#e6e6e6',spine:false},
   spine_title:null,_auto_spinetxt:$('#sspinetxt').value};
@@ -179,6 +180,7 @@ function applyDoc(){
  $('#stitle').value=doc.title.text;
  $('#sauthor').value=doc.author.text.replace(/^by\s+/,'');
  imgData=doc.front_image||null;
+ backImgData=doc.back_image||null;
  moved={};Object.entries(doc.offsets||{}).forEach(([k,v])=>moved[k]=[v[0]*300,v[1]*300]);
  hidden={title:!doc.title.text.trim(),author:!doc.author.text.trim()};
 }
@@ -186,11 +188,15 @@ $('#simg').onchange=async()=>{
  const f=$('#simg').files[0];if(!f){imgData=null;return;}
  imgData=await new Promise(r=>{const rd=new FileReader();rd.onload=()=>r(rd.result);rd.readAsDataURL(f);});
 };
+$('#simg2').onchange=async()=>{
+ const f=$('#simg2').files[0];if(!f){backImgData=null;return;}
+ backImgData=await new Promise(r=>{const rd=new FileReader();rd.onload=()=>r(rd.result);rd.readAsDataURL(f);});
+};
 let moved={},hidden={};
 function collect(){
  const d={mode:$('#smode').value,trim:$('#strim').value,pages:+$('#spages').value,paper:'white',
   bg_front:$('#sbg').value,bg_back:$('#sbg2').value,
-  spine_bg:$('#sspine').value,front_image:imgData,
+  spine_bg:$('#sspine').value,front_image:imgData,back_image:backImgData,
   title:{text:$('#stitle').value||' ',x:0,y:0,pt:36,color:'#ffffff',spine:false},
   author:{text:'by '+($('#sauthor').value||''),x:0,y:0,pt:18,color:'#e6e6e6',spine:false},
   spine_title:null,
@@ -212,8 +218,8 @@ async function render(){
 }
 /* --- RB-21b interactive canvas v2: select/drag/resize/nudge/zoom/guides --- */
 let selId=null, zoom=1, resized={};
-const LIDS=['layer-title','layer-author','layer-spine','layer-image','layer-bg-front','layer-bg-spine','layer-bg-back'];
-const RESIZABLE=['layer-image','layer-bg-front','layer-bg-spine'];
+const LIDS=['layer-title','layer-author','layer-spine','layer-image','layer-image-back','layer-bg-front','layer-bg-spine','layer-bg-back'];
+const RESIZABLE=['layer-image','layer-image-back','layer-bg-front','layer-bg-spine'];
 const SAFE=0.25*300;
 function geomFront(svg){const r=svg.querySelector('#layer-bg-front');if(!r)return null;
  return {x:+r.getAttribute('x'),y:+r.getAttribute('y'),w:+r.getAttribute('width'),h:+r.getAttribute('height')};}
@@ -366,9 +372,13 @@ function stage3d(){const b=$('#book3d');
  const tt=($('#stitle')||{}).value||d3.trim,au=($('#sauthor')||{}).value||'';
  const bgF=/^#[0-9a-f]{3,8}$/i.test($('#sbg').value)?$('#sbg').value:'#1d2733';
  const bgB=$('#sbg2').value,bgS=$('#sspine').value;
+ const frontCss=imgData?('center / cover no-repeat url('+JSON.stringify(imgData)+'), '+bgF):bgF;
+ const backCss=backImgData?('center / cover no-repeat url('+JSON.stringify(backImgData)+'), '+bgB):bgB;
  const sp=Math.max(8,d3.spine_in*s3);
- b.innerHTML=f3d(w,h,d,bgF,'<div style="padding:1em;max-width:90%"><div style="font-size:'+Math.max(10,Math.min(34,s3*.8))+'px;line-height:1.2">'+esc3(tt)+'</div><div style="opacity:.8;margin-top:.6em;font-size:'+Math.max(9,s3*.4)+'px">'+esc3(au)+'</div></div>','rotateY(0deg) translateZ('+(d/2)+'px)')
- +f3d(w,h,d,bgB,'<div style="opacity:.55;font-size:'+Math.max(9,s3*.4)+'px">'+esc3(au)+'</div>','rotateY(180deg) translateZ('+(d/2)+'px)')
+ const frontHtml=imgData?'':'<div style="padding:1em;max-width:90%"><div style="font-size:'+Math.max(10,Math.min(34,s3*.8))+'px;line-height:1.2">'+esc3(tt)+'</div><div style="opacity:.8;margin-top:.6em;font-size:'+Math.max(9,s3*.4)+'px">'+esc3(au)+'</div></div>';
+ const backHtml=backImgData?'':'<div style="opacity:.55;font-size:'+Math.max(9,s3*.4)+'px">'+esc3(au)+'</div>';
+ b.innerHTML=f3d(w,h,d,frontCss,frontHtml,'rotateY(0deg) translateZ('+(d/2)+'px)')
+ +f3d(w,h,d,backCss,backHtml,'rotateY(180deg) translateZ('+(d/2)+'px)')
  +f3d(d,h,0,bgS,'<div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:'+Math.min(sp*.62,Math.max(8,s3*.45))+'px;white-space:nowrap;overflow:hidden">'+esc3(tt)+' — '+esc3(au)+'</div>','rotateY(-90deg) translateZ('+(w/2)+'px)')
  +f3d(w,d,0,'linear-gradient(#eee,#bbb)','', 'rotateX(90deg) translateZ('+(h/2)+'px)')
  +f3d(w,d,0,'linear-gradient(#bbb,#eee)','', 'rotateX(-90deg) translateZ('+(h/2)+'px)')

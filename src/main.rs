@@ -93,6 +93,19 @@ fn main() {
                 Err(e) => eprintln!("Error: {e}"),
             }
         }
+        "coloring-kdp" => {
+            let dir = args
+                .get(2)
+                .cloned()
+                .unwrap_or_else(|| "build/coloring-kdp".to_string());
+            match coloring_kdp(&dir) {
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         _ => {
             eprintln!("Unknown command: {}", args[1]);
             print_help();
@@ -156,6 +169,9 @@ fn print_help() {
     println!("  check-print [products] - KDP print-gate v2: verify packages vs standards");
     println!("  coloring-plates [DIR] - Classic American Iron SVG plates (verso+recto)");
     println!("  coloring-draft [DIR]  - Studio uk draft + en fork (default workspace/drafts)");
+    println!(
+        "  coloring-kdp [DIR]    - KDP interior.pdf + cover-wrap.pdf (default build/coloring-kdp)"
+    );
     println!("  view       - Local KDP EPUB previewer server (http://127.0.0.1:8090/)");
     println!("  convert    - (deprecated) KDP accepts EPUB directly");
     println!("  kdp        - (deprecated) KDP accepts EPUB directly");
@@ -584,4 +600,17 @@ fn coloring_plates(dir: &str) -> Result<usize, String> {
 fn coloring_draft(dir: &str) -> Result<(String, String), String> {
     let (uk, en) = rust_book::coloring_draft::seed(Path::new(dir))?;
     Ok((uk.id, en.id))
+}
+
+fn coloring_kdp(dir: &str) -> Result<(), String> {
+    let files = rust_book::coloring_kdp::package(Path::new(dir))?;
+    println!("✓ interior {}", files.interior.display());
+    println!("✓ wrap     {}", files.wrap.display());
+    println!("✓ listing  {}", files.listing.display());
+    println!();
+    print!(
+        "{}",
+        std::fs::read_to_string(&files.listing).map_err(|e| e.to_string())?
+    );
+    Ok(())
 }

@@ -3,9 +3,10 @@
 //! Pages are **8.5×11 in at 72 pt/in** (`viewBox="0 0 612 792"`). Stroke is
 //! **1.25 pt** (above the KDP 0.75 pt graphic floor). No bleed: art lives in
 //! the safe box (0.25″ outside, gutter from [`crate::standards::gutter_in`]).
-//! Verso = caption + garage mark; recto = one line-art view.
+//! Each car: one **color identity** plate (make / model / year once), then
+//! four contour views (¾, profile, rear, front) with no repeated caption.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::coloring::{Car, OUTSIDE_MARGIN_IN, Roster, interior_pages};
 use crate::standards::gutter_in;
@@ -101,7 +102,8 @@ pub fn views_for(car: &Car) -> Vec<View> {
     match car.plates {
         1 => vec![View::ThreeQuarter],
         2 => vec![View::ThreeQuarter, View::Front],
-        _ => vec![View::ThreeQuarter, View::Rear, View::Badge],
+        3 => vec![View::ThreeQuarter, View::Profile, View::Rear],
+        _ => vec![View::ThreeQuarter, View::Profile, View::Rear, View::Front],
     }
 }
 
@@ -169,6 +171,15 @@ pub fn car_slug(car: &Car) -> String {
         .join("-")
 }
 
+/// Binding side from 1-based page number (odd = recto).
+pub fn side_for_page(page: u32) -> Side {
+    if page.is_multiple_of(2) {
+        Side::Verso
+    } else {
+        Side::Recto
+    }
+}
+
 /// Filename for one plate page (`{slug}-pN-verso.svg`).
 pub fn plate_file(car: &Car, plate_i: usize, side: Side) -> String {
     let slug = car_slug(car);
@@ -176,6 +187,16 @@ pub fn plate_file(car: &Car, plate_i: usize, side: Side) -> String {
         Side::Verso => format!("{slug}-p{plate_i}-verso.svg"),
         Side::Recto => format!("{slug}-p{plate_i}-recto.svg"),
     }
+}
+
+/// Color identity page (`{slug}-color.svg`).
+pub fn identity_file(car: &Car) -> String {
+    format!("{}-color.svg", car_slug(car))
+}
+
+/// Master color plate (`{slug}-color.png`).
+pub fn identity_png_name(car: &Car) -> String {
+    format!("{}-color.png", car_slug(car))
 }
 
 /// One SVG page (verso caption or recto art). English captions (CLI default).
@@ -195,13 +216,46 @@ pub fn page_svg_lang(
     let safe = safe_box(side, pages);
     let body = match side {
         Side::Verso => verso_inner(car, view, &safe, lang),
-        Side::Recto => recto_inner(car, view, &safe),
+        Side::Recto => recto_inner(car, view, &safe, lang),
     };
+    wrap_svg(
+        &format!("{} {} {} {:?}", car.year, car.make, car.model, view),
+        &safe,
+        &body,
+        page,
+    )
+}
+
+/// Color identity plate (make · model · year once).
+pub fn identity_svg(car: &Car, page: u32, pages: u32, lang: CaptionLang) -> String {
+    let side = side_for_page(page);
+    let safe = safe_box(side, pages);
+    wrap_svg(
+        &format!("{} {} {}", car.year, car.make, car.model),
+        &safe,
+        &identity_inner(car, &safe, lang),
+        page,
+    )
+}
+
+/// Contour coloring plate (no make/model/year — identity already printed).
+pub fn contour_svg(car: &Car, view: View, page: u32, pages: u32, lang: CaptionLang) -> String {
+    let side = side_for_page(page);
+    let safe = safe_box(side, pages);
+    wrap_svg(
+        &format!("{} {} {} {:?}", car.year, car.make, car.model, view),
+        &safe,
+        &recto_inner(car, view, &safe, lang),
+        page,
+    )
+}
+
+fn wrap_svg(title: &str, safe: &SafeBox, body: &str, page: u32) -> String {
     format!(
         r##"<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="8.5in" height="11in" fill="none" stroke="#000" stroke-width="{sw}" stroke-linejoin="round" stroke-linecap="round">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 {w} {h}" width="8.5in" height="11in" fill="none" stroke="#000" stroke-width="{sw}" stroke-linejoin="round" stroke-linecap="round">
 <title>{title}</title>
-<rect id="trim" x="0" y="0" width="{w}" height="{h}" stroke="none"/>
+<rect id="trim" x="0" y="0" width="{w}" height="{h}" fill="#fff" stroke="none"/>
 <rect id="safe" x="{sx:.2}" y="{sy:.2}" width="{swd:.2}" height="{sh:.2}" stroke="#000" stroke-width="0" fill="none"/>
 {body}
 <text id="pgn" x="{px:.2}" y="{py:.2}" font-family="Georgia,serif" font-size="11" fill="#000" stroke="none" text-anchor="middle">{page}</text>
@@ -210,10 +264,7 @@ pub fn page_svg_lang(
         w = PAGE_W,
         h = PAGE_H,
         sw = STROKE_PT,
-        title = esc(&format!(
-            "{} {} {} {:?}",
-            car.year, car.make, car.model, view
-        )),
+        title = esc(title),
         sx = safe.x,
         sy = safe.y,
         swd = safe.w,
@@ -225,12 +276,12 @@ pub fn page_svg_lang(
     )
 }
 
-/// Write verso+recto SVG pairs for every plate into `dir`. Returns file count.
+/// Write identity + contour pages for every car into `dir`. Returns file count.
 pub fn write_plates(roster: &Roster, dir: &Path) -> Result<usize, String> {
     write_plates_lang(roster, dir, CaptionLang::En)
 }
 
-/// Write plates with verso captions in `lang`.
+/// Write pages with identity captions in `lang`.
 pub fn write_plates_lang(roster: &Roster, dir: &Path, lang: CaptionLang) -> Result<usize, String> {
     if STROKE_PT < crate::coloring::LINE_MIN_PT {
         return Err(format!(
@@ -240,30 +291,82 @@ pub fn write_plates_lang(roster: &Roster, dir: &Path, lang: CaptionLang) -> Resu
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let pages = interior_pages(roster);
-    let start = roster.front_matter_pages; // last front page; first verso = start+1
+    let mut page = roster.front_matter_pages;
     let mut n = 0usize;
-    let mut ordinal = 0u32;
     for car in &roster.cars {
+        page += 1;
+        let ipath = dir.join(identity_file(car));
+        std::fs::write(&ipath, identity_svg(car, page, pages, lang)).map_err(|e| e.to_string())?;
+        if let Some(src) = identity_png_src(car) {
+            let dest = dir.join(identity_png_name(car));
+            std::fs::copy(&src, &dest).map_err(|e| format!("copy color: {e}"))?;
+        }
+        n += 1;
         for (i, view) in views_for(car).into_iter().enumerate() {
-            let verso_page = start + 1 + ordinal * 2;
-            let recto_page = verso_page + 1;
-            let vpath = dir.join(plate_file(car, i, Side::Verso));
+            page += 1;
             let rpath = dir.join(plate_file(car, i, Side::Recto));
-            std::fs::write(
-                &vpath,
-                page_svg_lang(car, view, Side::Verso, verso_page, pages, lang),
-            )
-            .map_err(|e| e.to_string())?;
-            std::fs::write(
-                &rpath,
-                page_svg_lang(car, view, Side::Recto, recto_page, pages, lang),
-            )
-            .map_err(|e| e.to_string())?;
-            n += 2;
-            ordinal += 1;
+            std::fs::write(&rpath, contour_svg(car, view, page, pages, lang))
+                .map_err(|e| e.to_string())?;
+            if let Some(src) = art_png_src(car, i) {
+                let dest = dir.join(art_png_name(car, i));
+                std::fs::copy(&src, &dest).map_err(|e| format!("copy art: {e}"))?;
+            }
+            n += 1;
         }
     }
     Ok(n)
+}
+
+fn identity_inner(car: &Car, safe: &SafeBox, lang: CaptionLang) -> String {
+    if identity_png_src(car).is_some() {
+        let name = identity_png_name(car);
+        return format!(
+            r#"<image id="identity" href="{name}" xlink:href="{name}" x="{x:.2}" y="{y:.2}" width="{w:.2}" height="{h:.2}" preserveAspectRatio="xMidYMid slice"/>"#,
+            x = safe.x,
+            y = safe.y,
+            w = safe.w,
+            h = safe.h,
+        );
+    }
+    let cx = safe.x + safe.w / 2.0;
+    let (make_l, model_l, year_l) = match lang {
+        CaptionLang::Uk => ("МАРКА", "МОДЕЛЬ", "РІК"),
+        CaptionLang::En => ("MAKE", "MODEL", "YEAR"),
+    };
+    let mut t = String::new();
+    t.push_str(&format!(
+        r#"<text x="{cx:.2}" y="{y:.2}" text-anchor="middle" font-family="Georgia,serif" font-size="14" font-weight="400" fill="black" stroke="none">{year_l}</text>"#,
+        y = safe.y + 120.0,
+    ));
+    t.push_str(&format!(
+        r#"<text x="{cx:.2}" y="{y:.2}" text-anchor="middle" font-family="Georgia,serif" font-size="36" font-weight="700" fill="black" stroke="none">{n}</text>"#,
+        y = safe.y + 168.0,
+        n = esc(&car.year.to_string()),
+    ));
+    t.push_str(&format!(
+        r#"<text x="{cx:.2}" y="{y:.2}" text-anchor="middle" font-family="Georgia,serif" font-size="14" font-weight="400" fill="black" stroke="none">{make_l}</text>"#,
+        y = safe.y + 230.0,
+    ));
+    t.push_str(&format!(
+        r#"<text x="{cx:.2}" y="{y:.2}" text-anchor="middle" font-family="Georgia,serif" font-size="32" font-weight="700" fill="black" stroke="none">{n}</text>"#,
+        y = safe.y + 276.0,
+        n = esc(&car.make.to_uppercase()),
+    ));
+    t.push_str(&format!(
+        r#"<text x="{cx:.2}" y="{y:.2}" text-anchor="middle" font-family="Georgia,serif" font-size="14" font-weight="400" fill="black" stroke="none">{model_l}</text>"#,
+        y = safe.y + 338.0,
+    ));
+    t.push_str(&format!(
+        r#"<text x="{cx:.2}" y="{y:.2}" text-anchor="middle" font-family="Georgia,serif" font-size="28" font-weight="700" fill="black" stroke="none">{n}</text>"#,
+        y = safe.y + 384.0,
+        n = esc(&car.model),
+    ));
+    t
+}
+
+fn identity_png_src(car: &Car) -> Option<PathBuf> {
+    let p = art_dir().join(identity_png_name(car));
+    p.is_file().then_some(p)
 }
 
 fn verso_inner(car: &Car, view: View, safe: &SafeBox, lang: CaptionLang) -> String {
@@ -316,16 +419,56 @@ fn verso_inner(car: &Car, view: View, safe: &SafeBox, lang: CaptionLang) -> Stri
     t
 }
 
-fn recto_inner(car: &Car, view: View, safe: &SafeBox) -> String {
-    let fam = family_of(car);
-    let ox = safe.x + safe.w * 0.06;
-    let oy = safe.y + safe.h * 0.28;
-    let sx = safe.w * 0.88 / 100.0;
-    let sy = safe.h * 0.42 / 40.0;
+/// Master line-art PNGs for print plates (`samples/coloring/art`).
+pub fn art_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("samples/coloring/art")
+}
+
+/// `{slug}-pN.png` next to the recto SVG.
+pub fn art_png_name(car: &Car, plate_i: usize) -> String {
+    format!("{}-p{plate_i}.png", car_slug(car))
+}
+
+fn art_png_src(car: &Car, plate_i: usize) -> Option<PathBuf> {
+    let p = art_dir().join(art_png_name(car, plate_i));
+    p.is_file().then_some(p)
+}
+
+fn plate_index(car: &Car, view: View) -> usize {
+    views_for(car).iter().position(|v| *v == view).unwrap_or(0)
+}
+
+/// Local drawing canvas (car group), points before page scale.
+const CAR_W: f64 = 520.0;
+const CAR_H: f64 = 186.0;
+
+fn recto_inner(car: &Car, view: View, safe: &SafeBox, lang: CaptionLang) -> String {
+    let i = plate_index(car, view);
+    let label_y = safe.y + safe.h - 8.0;
+    let label = format!(
+        r#"<text x="{x:.2}" y="{label_y:.2}" text-anchor="middle" font-family="Georgia,serif" font-size="11" fill="black" stroke="none">{v}</text>"#,
+        x = safe.x + safe.w / 2.0,
+        v = esc(view_label(view, lang)),
+    );
+    if art_png_src(car, i).is_some() {
+        let name = art_png_name(car, i);
+        return format!(
+            r#"<image id="car" href="{name}" xlink:href="{name}" x="{x:.2}" y="{y:.2}" width="{w:.2}" height="{h:.2}" preserveAspectRatio="xMidYMid meet"/>{label}"#,
+            x = safe.x,
+            y = safe.y,
+            w = safe.w,
+            h = safe.h - 16.0,
+        );
+    }
+    let sx = safe.w * 0.92 / CAR_W;
+    let sy = (safe.h - 16.0) * 0.72 / CAR_H;
+    let s = sx.min(sy);
+    let ox = safe.x + (safe.w - CAR_W * s) * 0.5;
+    let oy = safe.y + (safe.h - 16.0 - CAR_H * s) * 0.48;
     format!(
-        r#"<g id="car" transform="translate({ox:.2} {oy:.2}) scale({sx:.4} {sy:.4})" stroke-width="{sw:.3}">{paths}</g>"#,
-        sw = STROKE_PT / sx.min(sy),
-        paths = car_paths(fam, view)
+        r#"<g id="car" transform="translate({ox:.2} {oy:.2}) scale({s:.4} {s:.4})" stroke-width="{sw:.3}">{paths}</g>{label}"#,
+        sw = STROKE_PT / s,
+        paths = crate::coloring_art::draw(car, view)
     )
 }
 
@@ -366,139 +509,6 @@ const CREST: &str = r#"<polygon points="120,18 210,58 210,150 120,222 30,150 30,
 <circle cx="120" cy="78" r="10"/>
 <path d="M70 168 Q120 198 170 168"/>"#;
 
-fn wheels(x1: f64, x2: f64, y: f64, r: f64) -> String {
-    format!(
-        r#"<circle cx="{x1}" cy="{y}" r="{r}"/><circle cx="{x1}" cy="{y}" r="{ir}"/><circle cx="{x2}" cy="{y}" r="{r}"/><circle cx="{x2}" cy="{y}" r="{ir}"/>"#,
-        ir = r * 0.42
-    )
-}
-
-fn car_paths(family: Family, view: View) -> String {
-    match view {
-        View::Front => front_paths(family),
-        View::Rear => rear_paths(family),
-        View::Badge => badge_paths(family),
-        View::Profile | View::ThreeQuarter => profile_paths(family, view == View::ThreeQuarter),
-    }
-}
-
-fn profile_paths(family: Family, three_q: bool) -> String {
-    let mut p = String::new();
-    // ground line
-    p.push_str(r#"<path d="M 4 34 H 96"/>"#);
-    let body = match family {
-        Family::Fins => {
-            r#"<path d="M 10 30 Q 14 18 28 16 L 52 15 Q 68 10 82 14 L 94 20 L 92 28 L 78 26 Q 70 22 58 24 L 28 26 Q 16 28 12 32 Z"/>
-<path d="M 78 18 L 96 8 L 94 20"/>"#
-        }
-        Family::Split => {
-            r#"<path d="M 12 31 Q 18 16 36 14 L 62 13 Q 78 14 88 22 L 90 30 L 78 28 L 36 28 Q 20 29 14 32 Z"/>
-<path d="M 58 14 L 64 8 L 72 14"/>"#
-        }
-        Family::Roadster => {
-            r#"<path d="M 8 31 L 18 28 L 34 20 L 58 18 L 78 22 L 90 28 L 88 32 L 12 33 Z"/>
-<path d="M 36 20 L 40 12 L 54 12 L 58 18"/>
-<path d="M 22 31 L 70 31"/>"#
-        }
-        Family::Buttress => {
-            r#"<path d="M 10 31 Q 16 18 32 16 L 58 15 Q 74 16 86 20 L 90 30 L 78 28 Q 70 18 58 20 L 32 24 Q 18 26 12 32 Z"/>
-<path d="M 62 16 L 74 10 L 80 20"/>"#
-        }
-        Family::Ebody => {
-            r#"<path d="M 11 31 Q 18 17 34 15 L 60 14 Q 76 15 88 22 L 90 30 L 34 28 Q 18 29 13 32 Z"/>
-<path d="M 40 15 L 48 10 L 56 15"/>"#
-        }
-        Family::Pony => {
-            r#"<path d="M 12 31 Q 20 18 36 16 L 58 15 Q 74 16 86 22 L 88 30 L 36 28 Q 20 29 14 32 Z"/>
-<path d="M 44 16 Q 50 11 56 16"/>"#
-        }
-        Family::Hotrod => {
-            r#"<path d="M 14 30 L 26 22 L 40 20 L 62 20 L 78 24 L 86 30 L 20 32 Z"/>
-<path d="M 28 22 L 32 12 L 44 12 L 46 20"/>"#
-        }
-        Family::Tbird => {
-            r#"<path d="M 12 31 Q 20 18 38 16 L 64 16 Q 80 18 88 26 L 86 31 L 38 28 Q 22 29 14 32 Z"/>
-<path d="M 70 18 A 4 4 0 0 1 70 26"/>"#
-        }
-        Family::TransAm => {
-            r#"<path d="M 11 31 Q 18 17 36 15 L 62 14 Q 78 16 88 24 L 88 31 L 36 28 Q 18 29 13 32 Z"/>
-<path d="M 70 16 L 92 12 L 88 24"/>"#
-        }
-        Family::Sled => {
-            r#"<path d="M 10 32 Q 16 20 30 16 L 70 15 Q 86 16 92 24 L 90 31 L 16 32 Z"/>"#
-        }
-        Family::Racer => {
-            r#"<path d="M 8 28 L 24 22 L 48 18 L 78 20 L 94 26 L 90 30 L 12 30 Z"/>
-<path d="M 70 20 L 88 16 L 90 26"/>"#
-        }
-        Family::Muscle => {
-            r#"<path d="M 11 31 Q 18 18 34 16 L 62 15 Q 78 16 88 23 L 90 31 L 34 28 Q 18 29 13 32 Z"/>"#
-        }
-    };
-    p.push_str(body);
-    p.push_str(&wheels(24.0, 76.0, 32.0, 6.5));
-    if three_q {
-        p.push_str(r#"<path d="M 36 16 Q 44 20 52 16"/><path d="M 88 24 L 96 28"/>"#);
-    }
-    if matches!(family, Family::Roadster) {
-        p.push_str(r#"<path d="M 28 31 L 30 36 M 34 31 L 36 36 M 40 31 L 42 36"/>"#);
-    }
-    if matches!(family, Family::Ebody | Family::Pony) {
-        p.push_str(r#"<path d="M 42 16 L 46 13 L 50 16"/>"#);
-    }
-    p
-}
-
-fn front_paths(family: Family) -> String {
-    let mut p = String::from(r#"<path d="M 20 34 H 80"/>"#);
-    p.push_str(r#"<path d="M 28 30 Q 50 12 72 30 L 70 34 L 30 34 Z"/>"#);
-    p.push_str(r#"<path d="M 34 22 L 66 22 L 64 28 L 36 28 Z"/>"#);
-    p.push_str(&wheels(34.0, 66.0, 33.0, 5.5));
-    match family {
-        Family::Fins => p.push_str(r#"<path d="M 30 18 L 34 12 M 70 18 L 66 12"/>"#),
-        Family::Ebody | Family::Pony => {
-            p.push_str(r#"<path d="M 46 16 L 50 12 L 54 16"/><path d="M 38 26 H 62"/>"#)
-        }
-        Family::Roadster => p.push_str(r#"<path d="M 40 18 L 50 8 L 60 18"/>"#),
-        Family::Racer => p.push_str(r#"<path d="M 32 26 H 68 M 50 12 V 26"/>"#),
-        _ => p.push_str(r#"<path d="M 42 26 H 58"/>"#),
-    }
-    p
-}
-
-fn rear_paths(family: Family) -> String {
-    let mut p = String::from(r#"<path d="M 22 34 H 78"/>"#);
-    p.push_str(r#"<path d="M 30 32 Q 50 14 70 32 L 66 34 L 34 34 Z"/>"#);
-    p.push_str(&wheels(36.0, 64.0, 33.0, 5.5));
-    match family {
-        Family::Fins => p.push_str(
-            r#"<path d="M 32 18 L 28 6 L 36 20 M 68 18 L 72 6 L 64 20"/><path d="M 40 24 H 60"/>"#,
-        ),
-        Family::Split => {
-            p.push_str(r#"<path d="M 38 18 L 48 16 L 48 26 L 38 26 Z"/><path d="M 52 16 L 62 18 L 62 26 L 52 26 Z"/>"#)
-        }
-        Family::Buttress => p.push_str(r#"<path d="M 34 16 Q 50 10 66 16 L 62 28 L 38 28 Z"/>"#),
-        Family::TransAm => p.push_str(r#"<path d="M 28 14 H 72 L 68 18 H 32 Z"/>"#),
-        _ => p.push_str(r#"<path d="M 40 22 H 60 M 44 26 H 56"/>"#),
-    }
-    p
-}
-
-fn badge_paths(family: Family) -> String {
-    let mut p = String::from(r#"<rect x="30" y="8" width="40" height="26" rx="3"/>"#);
-    p.push_str(r#"<circle cx="50" cy="21" r="8"/>"#);
-    match family {
-        Family::Roadster => p.push_str(r#"<path d="M 20 36 Q 50 30 80 36"/>"#),
-        Family::Ebody => p.push_str(r#"<path d="M 42 12 L 50 6 L 58 12"/>"#),
-        Family::Split => {
-            p.push_str(r#"<path d="M 42 16 H 48 V 26 H 42 Z M 52 16 H 58 V 26 H 52 Z"/>"#)
-        }
-        Family::Fins => p.push_str(r#"<path d="M 34 10 L 38 4 M 66 10 L 62 4"/>"#),
-        _ => p.push_str(r#"<path d="M 44 21 H 56"/>"#),
-    }
-    p
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,15 +541,23 @@ mod tests {
         assert!(!v.to_ascii_lowercase().contains("<script"));
         let art = page_svg(car, View::Rear, Side::Recto, 11, pages);
         assert!(art.contains("id=\"car\""));
-        assert!(art.contains("<circle"));
+        assert!(
+            art.contains("<image") || art.contains("<circle") || art.contains("<ellipse"),
+            "recto is print line art (raster plate or vector fallback)"
+        );
         let verso_safe = safe_box(Side::Verso, pages);
         let recto_safe = safe_box(Side::Recto, pages);
         assert!(
             verso_safe.x < recto_safe.x,
             "recto gutter is the left inset"
         );
-        assert_eq!(views_for(car).len(), 3);
+        assert_eq!(views_for(car).len(), 4);
         assert_eq!(family_of(car), Family::Fins);
+        let idn = identity_svg(car, 9, pages, CaptionLang::En);
+        assert!(idn.contains("Cadillac") || idn.contains("identity"));
+        let contour = contour_svg(car, View::Profile, 10, pages, CaptionLang::En);
+        assert!(!contour.contains("MAKE"));
+        assert!(contour.contains("profile"));
     }
 
     #[test]
@@ -548,10 +566,12 @@ mod tests {
         let dir = std::env::temp_dir().join("rebook-coloring-plates");
         let _ = std::fs::remove_dir_all(&dir);
         let n = write_plates(&r, &dir).unwrap();
-        assert_eq!(n as u32, plate_count(&r) * 2);
-        let sample = dir.join("1959-cadillac-eldorado-biarritz-p0-verso.svg");
+        assert_eq!(n as u32, r.cars.len() as u32 + plate_count(&r));
+        let sample = dir.join("1959-cadillac-eldorado-biarritz-color.svg");
         assert!(sample.is_file());
-        let cobra = dir.join("1967-shelby-cobra-427-p2-recto.svg");
-        assert!(cobra.is_file(), "hero third plate exists");
+        let cobra = dir.join("1967-shelby-cobra-427-p0-recto.svg");
+        assert!(cobra.is_file(), "four contour views per model");
+        let last = dir.join("1967-shelby-cobra-427-p3-recto.svg");
+        assert!(last.is_file());
     }
 }

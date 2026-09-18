@@ -18,6 +18,8 @@
 
 # Generated coloring plates (RB-51 `coloring-plates`)
 /samples/coloring/plates/
+# Print line-art rasters (coloring-book plates)
+/samples/coloring/art/
 
 # Book outputs — never track compiled/exported book artifacts
 *.epub

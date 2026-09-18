@@ -1,9 +1,9 @@
 //! Classic-American-cars coloring paperback: roster + KDP page math.
 //!
-//! Interior is **B&W on white**, trim **8.5×11**, **no bleed**. Each plate is a
-//! recto line-art page; the verso is a caption (make / model / year + custom
-//! mark) so KDP does not see a run of empty backs. Cars do not all get the
-//! same plate count — hero shapes need more views.
+//! Trim **8.5×11**, **no bleed**, **premium color** interior (one color
+//! identity plate per car, then four black contour views). Make / model /
+//! year is printed **once** on the color plate — the four views do not
+//! repeat the caption.
 
 use serde::Deserialize;
 
@@ -18,23 +18,25 @@ pub const ROSTER_JSON: &str = include_str!("../samples/coloring-cars.json");
 pub const LINE_MIN_PT: f64 = 0.75;
 /// No-bleed outside margin, inches (KDP coloring practice).
 pub const OUTSIDE_MARGIN_IN: f64 = 0.25;
-/// One coloring plate = verso caption + recto art.
-pub const PAGES_PER_PLATE: u32 = 2;
+/// Color identity plate (make · model · year) printed once per car.
+pub const COLOR_PAGES_PER_CAR: u32 = 1;
+/// Contour views after the identity plate: ¾, profile, rear, front.
+pub const VIEWS_PER_CAR: u32 = 4;
 
 /// One car in the roster.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Car {
     /// Manufacturer (Cadillac, Ford, …).
     pub make: String,
-    /// Model name as printed on the verso.
+    /// Model name as printed on the color identity plate.
     pub model: String,
     /// Model year.
     pub year: u16,
-    /// `hero` / `signature` / `simple` — drives default plate count.
+    /// `hero` / `signature` / `simple`.
     pub tier: String,
-    /// Distinct line-art views (1–3).
+    /// Distinct line-art views (always 4 in this edition).
     pub plates: u32,
-    /// Why this car gets that many plates (source language).
+    /// Why this car is in the book (source language).
     #[serde(default)]
     pub why: String,
     /// English why (write-then-translate fork).
@@ -49,9 +51,9 @@ pub struct KdpSpec {
     pub format: String,
     /// Trim label (`8.5x11`).
     pub trim: String,
-    /// `white` | `cream` | …
+    /// `white` | `cream` | `premium` (spine + page-cap).
     pub paper: String,
-    /// Interior ink (`bw`).
+    /// Interior ink (`color` — identity plates are full color).
     pub ink: String,
     /// Coloring interiors stay inside the trim (no bleed).
     pub bleed: bool,
@@ -93,17 +95,22 @@ pub fn load_roster() -> Result<Roster, String> {
     serde_json::from_str(ROSTER_JSON).map_err(|e| e.to_string())
 }
 
-/// Sum of plates across cars.
+/// Sum of contour views across cars (not counting color identity plates).
 pub fn plate_count(r: &Roster) -> u32 {
     r.cars.iter().map(|c| c.plates).sum()
 }
 
-/// Interior PDF page count (even): front + 2×plates + back.
-pub fn interior_pages(r: &Roster) -> u32 {
-    even_pages(r.front_matter_pages + plate_count(r) * PAGES_PER_PLATE + r.back_matter_pages)
+/// Pages of car content: 1 color identity + N contour views, per car.
+pub fn car_content_pages(r: &Roster) -> u32 {
+    r.cars.len() as u32 * COLOR_PAGES_PER_CAR + plate_count(r)
 }
 
-/// Paper from the roster (`white` default).
+/// Interior PDF page count (even): front + identity/views + back.
+pub fn interior_pages(r: &Roster) -> u32 {
+    even_pages(r.front_matter_pages + car_content_pages(r) + r.back_matter_pages)
+}
+
+/// Paper from the roster (`premium` color default for this title).
 pub fn roster_paper(r: &Roster) -> Paper {
     match r.kdp.paper.as_str() {
         "cream" => Paper::Cream,
@@ -129,39 +136,42 @@ pub fn kdp_ok(r: &Roster) -> Result<(), String> {
     if (r.kdp.outside_margin_in - OUTSIDE_MARGIN_IN).abs() > 1e-9 {
         return Err("outside margin must be 0.25in (no-bleed coloring)".into());
     }
+    if r.kdp.ink != "color" {
+        return Err("identity plates are color — interior ink must be color".into());
+    }
     let trim = find_trim(PAPERBACK_TRIMS, &r.kdp.trim)
         .ok_or_else(|| format!("unknown trim {}", r.kdp.trim))?;
     let pages = interior_pages(r);
     let paper = roster_paper(r);
-    if paper != Paper::White {
-        return Err("coloring interiors print B&W on white paper".into());
+    if paper != Paper::PremiumColor {
+        return Err("color identity plates print on premium color paper".into());
     }
     if !paperback_pages_ok(trim, pages, paper) {
-        return Err(format!("{pages} pages invalid for {} / white", r.kdp.trim));
+        return Err(format!(
+            "{pages} pages invalid for {} / premium color (24–590)",
+            r.kdp.trim
+        ));
     }
     if gutter_in(pages).is_none() {
         return Err("no gutter band for page count".into());
     }
     let _ = paperback_cover(trim, pages, paper)?;
+    if !r.front_matter_pages.is_multiple_of(2) || !r.back_matter_pages.is_multiple_of(2) {
+        return Err("front/back matter must be even so the first car opens recto".into());
+    }
     for c in &r.cars {
-        let expect = match c.tier.as_str() {
-            "hero" => 3,
-            "signature" => 2,
-            "simple" => 1,
-            other => return Err(format!("unknown tier {other}")),
-        };
-        if c.plates != expect {
+        if c.plates != VIEWS_PER_CAR {
             return Err(format!(
-                "{} {} {}: plates {} ≠ tier {}",
-                c.year, c.make, c.model, c.plates, c.tier
+                "{} {} {}: four contour views per model, got {}",
+                c.year, c.make, c.model, c.plates
             ));
         }
         if c.make.trim().is_empty() || c.model.trim().is_empty() {
-            return Err("make/model required on every verso".into());
+            return Err("make/model required on every identity plate".into());
         }
         if c.why.trim().is_empty() || c.why_en.trim().is_empty() {
             return Err(format!(
-                "{} {} {}: need why + why_en for plate count",
+                "{} {} {}: need why + why_en",
                 c.year, c.make, c.model
             ));
         }
@@ -179,15 +189,18 @@ mod tests {
         let r = load_roster().unwrap();
         kdp_ok(&r).unwrap();
         assert_eq!(r.cars.len(), 24);
-        assert_eq!(plate_count(&r), 46);
-        assert_eq!(interior_pages(&r), 104);
+        assert_eq!(plate_count(&r), 96);
+        assert_eq!(car_content_pages(&r), 120);
+        assert_eq!(interior_pages(&r), 130);
         assert_eq!(r.kdp.trim, "8.5x11");
+        assert_eq!(r.kdp.ink, "color");
         assert!(!r.kdp.bleed);
         assert_eq!(r.source_language, "uk");
-        assert!((gutter_in(104).unwrap() - 0.375).abs() < 1e-9);
+        assert_eq!(r.front_matter_pages, 8);
+        assert!((gutter_in(130).unwrap() - 0.375).abs() < 1e-9);
         assert!(
-            spine_text_allowed(104),
-            "104 pages clears the 79-page spine floor"
+            spine_text_allowed(130),
+            "130 pages is above the 79-page spine-text floor"
         );
         let hero = r.cars.iter().filter(|c| c.tier == "hero").count();
         let sig = r.cars.iter().filter(|c| c.tier == "signature").count();
