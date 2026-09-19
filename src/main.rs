@@ -1,7 +1,8 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let raw: Vec<String> = std::env::args().collect();
+    let args = apply_global_flags(&raw);
     if args.len() < 2 {
         print_help();
         return;
@@ -84,20 +85,26 @@ fn main() {
             }
         }
         "coloring-draft" => {
-            let dir = args
-                .get(2)
-                .cloned()
-                .unwrap_or_else(|| "workspace/drafts".to_string());
+            let dir = args.get(2).cloned().unwrap_or_else(|| {
+                rust_book::paths::home()
+                    .join("workspace")
+                    .join("drafts")
+                    .to_string_lossy()
+                    .into_owned()
+            });
             match coloring_draft(&dir) {
                 Ok((uk, en)) => println!("✓ Studio {uk} + {en} → {dir}"),
                 Err(e) => eprintln!("Error: {e}"),
             }
         }
         "coloring-kdp" => {
-            let dir = args
-                .get(2)
-                .cloned()
-                .unwrap_or_else(|| "build/coloring-kdp".to_string());
+            let dir = args.get(2).cloned().unwrap_or_else(|| {
+                rust_book::paths::home()
+                    .join("build")
+                    .join("coloring-kdp")
+                    .to_string_lossy()
+                    .into_owned()
+            });
             match coloring_kdp(&dir) {
                 Ok(()) => {}
                 Err(e) => {
@@ -106,11 +113,34 @@ fn main() {
                 }
             }
         }
+        "init" => match init_project(&args[2..]) {
+            Ok(dir) => println!("✓ book project ready in {}", dir.display()),
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        },
         _ => {
             eprintln!("Unknown command: {}", args[1]);
             print_help();
         }
     }
+}
+
+/// `--dir` / `-C` set the portable home before any command runs.
+fn apply_global_flags(args: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut i = 0usize;
+    while i < args.len() {
+        if (args[i] == "--dir" || args[i] == "-C") && i + 1 < args.len() {
+            rust_book::paths::set_home_override(PathBuf::from(&args[i + 1]));
+            i += 2;
+            continue;
+        }
+        out.push(args[i].clone());
+        i += 1;
+    }
+    out
 }
 
 /// A resolved book project: where `book.json` lives and where the EPUB goes.
@@ -127,54 +157,64 @@ struct BookProject {
 
 impl BookProject {
     fn resolve() -> BookProject {
-        if Path::new("book.json").exists() {
-            BookProject {
-                base: std::path::PathBuf::from("."),
-                json: std::path::PathBuf::from("book.json"),
-                epub: std::path::PathBuf::from("build/rust_book.epub"),
+        let home = rust_book::paths::home();
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let candidates = [home.clone(), cwd];
+        for root in &candidates {
+            let json = root.join("book.json");
+            if json.is_file() {
+                return BookProject {
+                    base: root.clone(),
+                    json,
+                    epub: root.join("build").join("book.epub"),
+                };
             }
-        } else {
-            BookProject {
-                base: std::path::PathBuf::from("samples"),
-                json: std::path::PathBuf::from("samples/book.json"),
-                epub: std::path::PathBuf::from("samples/rust_book.epub"),
+        }
+        for root in &candidates {
+            let json = root.join("samples").join("book.json");
+            if json.is_file() {
+                return BookProject {
+                    base: root.join("samples"),
+                    json,
+                    epub: root.join("samples").join("book.epub"),
+                };
             }
+        }
+        BookProject {
+            base: home.join("samples"),
+            json: home.join("samples").join("book.json"),
+            epub: home.join("samples").join("book.epub"),
         }
     }
 
-    fn label(&self, extra_base: &str) -> std::path::PathBuf {
-        if self.base == std::path::Path::new(".") {
-            std::path::PathBuf::from(extra_base)
-        } else {
-            self.base.join(extra_base)
-        }
+    fn label(&self, extra_base: &str) -> PathBuf {
+        self.base.join(extra_base)
     }
 }
 
 fn print_help() {
-    println!("rebook - local EPUB 3.2 book tool");
-    println!("==================================");
-    println!("Available commands:");
-    println!("  build-epub - Build a valid EPUB 3.2 (book.json + chapters/, or bundled sample)");
-    println!("               Optional: --cover <path> (png/jpg/webp/gif/svg;");
-    println!("               auto-detects cover.png/.jpg/.jpeg/.webp next to book.json)");
-    println!("  md         - Render the whole book to a single markdown file");
-    println!("  check      - Validate the built EPUB (Rust-only, zip crate)");
-    println!("  cover-template [TRIM] [PAGES] [white|cream|ground|premium]");
-    println!("               [--mode pb|hc|dj] [--out FILE.svg] [--isbn ISBN]");
-    println!("               Full-wrap print template SVG at 300 DPI (KDP/Ingram geometry)");
-    println!(
-        "  shelf      - Build all product formats (product.json targets: ebook/paperback/hardcover)"
-    );
-    println!("  check-print [products] - KDP print-gate v2: verify packages vs standards");
-    println!("  coloring-plates [DIR] - Classic American Iron SVG plates (verso+recto)");
-    println!("  coloring-draft [DIR]  - Studio uk draft + en fork (default workspace/drafts)");
-    println!(
-        "  coloring-kdp [DIR]    - KDP interior.pdf + cover-wrap.pdf (default build/coloring-kdp)"
-    );
-    println!("  view       - Local KDP EPUB previewer server (http://127.0.0.1:8090/)");
-    println!("  convert    - (deprecated) KDP accepts EPUB directly");
-    println!("  kdp        - (deprecated) KDP accepts EPUB directly");
+    println!("rebook — portable EPUB 3.2 / KDP book tool");
+    println!("==========================================");
+    println!("Copy rust_book.exe into a folder, then:");
+    println!("  rust_book init              scaffold book.json + chapters/");
+    println!("  rust_book build-epub        write build/book.epub");
+    println!("  rust_book view              http://127.0.0.1:8090/  (loopback only)");
+    println!();
+    println!("Global: --dir PATH  or  -C PATH  or  REBOOK_HOME  (portable data folder)");
+    println!("Your book = book.json + chapters/*.md [+ cover.png] in that folder.");
+    println!();
+    println!("Commands:");
+    println!("  init [--sample] [DIR]  New book project (optional MIT sample chapters)");
+    println!("  build-epub             EPUB 3.2 from book.json + chapters/");
+    println!("                         Optional: --cover <path>");
+    println!("  md                     One markdown export of the whole book");
+    println!("  check                  Validate the built EPUB");
+    println!("  view [--port N]        Local previewer + Studio (127.0.0.1)");
+    println!("  cover-template …       Full-wrap print SVG (KDP/Ingram geometry)");
+    println!("  shelf                  product.json → ebook / paperback / hardcover");
+    println!("  check-print [DIR]      Print-gate on a products folder");
+    println!("  interior-pdf [TRIM]    Interior PDF for the resolved book");
+    println!("  convert · kdp          Deprecated — upload the EPUB to KDP");
 }
 
 fn build_epub(args: &[String]) -> Result<(), String> {
@@ -361,7 +401,11 @@ fn build_interior(args: &[String]) -> Result<String, String> {
     let book = rust_book::load_book(&proj.json)?;
     let chapters = rust_book::load_chapters(&proj.base, &book)?;
     let mut trim = "6x9";
-    let mut out = "build/interior.pdf".to_string();
+    let mut out = rust_book::paths::home()
+        .join("build")
+        .join("interior.pdf")
+        .to_string_lossy()
+        .into_owned();
     let mut i = 0usize;
     let mut positionals: Vec<&str> = Vec::new();
     while i < args.len() {
@@ -565,30 +609,108 @@ fn cover_template(args: &[String]) -> Result<String, String> {
 /// Start the local KDP EPUB previewer server. Bind only to loopback.
 fn view(port: &str) -> Result<(), String> {
     let addr = format!("127.0.0.1:{port}");
+    let home = rust_book::paths::home();
+    if rust_book::paths::is_unsafe_home(&home) {
+        return Err(
+            "refusing to use a system folder as the book home. Run from a dedicated \
+             directory, or set REBOOK_HOME / --dir"
+                .into(),
+        );
+    }
+    println!("data home: {}", home.display());
 
-    // Out-of-the-box: if the resolved project has no EPUB yet, build it first
-    // (this makes the bundled sample instantly viewable on a fresh clone).
+    // Out-of-the-box: seed the MIT sample next to the exe if nothing is there.
     let proj = BookProject::resolve();
+    if !proj.json.is_file() {
+        write_embedded_sample(&home.join("samples"))?;
+    }
     if !proj.epub.exists() {
         println!("No EPUB found — building {}", proj.epub.display());
         build_epub(&[])?;
     }
 
-    // Discover every *.epub on disk (and adjacent book.json / auto-parse).
-    let root = std::path::Path::new(".");
-    let books = rust_book::viewer::discover_books(root)?;
+    let books = rust_book::viewer::discover_books_many(&rust_book::paths::scan_roots())?;
     if books.is_empty() {
-        println!("Не знайдено жодного *.epub у поточному каталозі.");
-        println!(
-            "Покладіть EPUB (напр. {}/*.epub) і запустіть заново.",
-            proj.epub.parent().unwrap().display()
-        );
+        println!("No *.epub under {}", home.display());
+        println!("Run: rust_book init   then   rust_book build-epub");
         return Ok(());
     }
 
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| format!("Failed to start async runtime: {e}"))?;
     rt.block_on(rust_book::web::serve_web(books, &addr))
+}
+
+fn init_project(args: &[String]) -> Result<PathBuf, String> {
+    let mut sample = false;
+    let mut dir: Option<PathBuf> = None;
+    for a in args {
+        if a == "--sample" {
+            sample = true;
+        } else if a.starts_with('-') {
+            return Err(format!("unknown init flag: {a}"));
+        } else {
+            dir = Some(PathBuf::from(a));
+        }
+    }
+    let root = dir.unwrap_or_else(rust_book::paths::home);
+    if rust_book::paths::is_unsafe_home(&root) {
+        return Err("refusing to init in a system folder — pick an empty directory".into());
+    }
+    std::fs::create_dir_all(&root).map_err(|e| format!("mkdir {}: {e}", root.display()))?;
+    if sample {
+        write_embedded_sample(&root)?;
+        return Ok(root);
+    }
+    let json = root.join("book.json");
+    if json.is_file() {
+        return Err(format!("{} already exists", json.display()));
+    }
+    let chapters = root.join("chapters");
+    std::fs::create_dir_all(&chapters).map_err(|e| format!("mkdir chapters: {e}"))?;
+    std::fs::write(
+        chapters.join("01.md"),
+        "# Chapter 1\n\nWrite your book here.\n",
+    )
+    .map_err(|e| format!("write chapter: {e}"))?;
+    let stub = r#"{
+  "title": "My Book",
+  "author": "Author Name",
+  "edition": 1,
+  "year": 2026,
+  "format": "EPUB 3.2",
+  "language": "en",
+  "chapters": [
+    { "number": 1, "title": "Chapter 1", "file": "chapters/01.md" }
+  ]
+}
+"#;
+    std::fs::write(&json, stub).map_err(|e| format!("write book.json: {e}"))?;
+    println!("  book.json");
+    println!("  chapters/01.md");
+    println!(
+        "Next: edit chapters, then  rust_book --dir \"{}\" build-epub",
+        root.display()
+    );
+    Ok(root)
+}
+
+fn write_embedded_sample(dir: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir.join("chapters")).map_err(|e| format!("mkdir sample: {e}"))?;
+    let files: &[(&str, &str)] = &[
+        ("book.json", include_str!("../samples/book.json")),
+        ("chapters/01.md", include_str!("../samples/chapters/01.md")),
+        ("chapters/02.md", include_str!("../samples/chapters/02.md")),
+        ("chapters/03.md", include_str!("../samples/chapters/03.md")),
+    ];
+    for (name, body) in files {
+        let path = rust_book::paths::safe_under(dir, name)?;
+        if !path.is_file() {
+            std::fs::write(&path, body).map_err(|e| format!("write {}: {e}", path.display()))?;
+            println!("  {}", path.display());
+        }
+    }
+    Ok(())
 }
 
 fn coloring_plates(dir: &str) -> Result<usize, String> {

@@ -343,6 +343,9 @@ fn find_bytes(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
+/// Loud alias so the Cover slot is not interior.pdf (8.5×11).
+pub const WRAP_UPLOAD_NAME: &str = "UPLOAD-COVER-ONLY-17.555x11.25in.pdf";
+
 /// Files written by [`package`].
 #[derive(Debug, Clone)]
 pub struct KdpFiles {
@@ -360,7 +363,15 @@ pub fn package(out_dir: &Path) -> Result<KdpFiles, String> {
     kdp_ok(&roster)?;
     std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir kdp: {e}"))?;
     let jpeg_dir = out_dir.join("jpeg");
-    rasterize_masters(&art_dir(), &jpeg_dir)?;
+    let pages = interior_pages(&roster);
+    let spine = spine_width(pages, Paper::PremiumColor);
+    rasterize_masters(
+        &art_dir(),
+        &jpeg_dir,
+        pages,
+        spine,
+        &roster.title_en.to_ascii_uppercase(),
+    )?;
     let interior = out_dir.join("interior.pdf");
     let wrap = out_dir.join("cover-wrap.pdf");
     write_interior(&roster, &jpeg_dir, &interior)?;
@@ -368,6 +379,9 @@ pub fn package(out_dir: &Path) -> Result<KdpFiles, String> {
     if !wrap_rep.image_placed {
         return Err("cover wrap skipped the JPEG (need 300 DPI RGB JPEG)".into());
     }
+    let wrap_upload = out_dir.join(WRAP_UPLOAD_NAME);
+    std::fs::copy(&wrap, &wrap_upload).map_err(|e| format!("copy wrap alias: {e}"))?;
+    std::fs::copy(&wrap, out_dir.join("cover.pdf")).map_err(|e| format!("copy cover.pdf: {e}"))?;
     let listing = out_dir.join("KDP.txt");
     std::fs::write(&listing, listing_copy(&roster)).map_err(|e| format!("write listing: {e}"))?;
     Ok(KdpFiles {
@@ -377,7 +391,13 @@ pub fn package(out_dir: &Path) -> Result<KdpFiles, String> {
     })
 }
 
-fn rasterize_masters(art: &Path, jpeg_dir: &Path) -> Result<(), String> {
+fn rasterize_masters(
+    art: &Path,
+    jpeg_dir: &Path,
+    pages: u32,
+    spine: f64,
+    spine_text: &str,
+) -> Result<(), String> {
     if !art.is_dir() {
         return Err(format!("art masters missing: {}", art.display()));
     }
@@ -397,13 +417,19 @@ fn rasterize_masters(art: &Path, jpeg_dir: &Path) -> Result<(), String> {
             &art.to_string_lossy(),
             "-OutDir",
             &jpeg_dir.to_string_lossy(),
+            "-Pages",
+            &pages.to_string(),
+            "-SpineIn",
+            &format!("{spine:.6}"),
+            "-SpineText",
+            spine_text,
         ])
         .status()
         .map_err(|e| format!("powershell: {e}"))?;
     if !st.success() {
         return Err(format!("png→jpeg failed (status {st})"));
     }
-    for name in ["cover-front.jpg", "cover-back.jpg"] {
+    for name in ["cover-front.jpg", "cover-back.jpg", "cover-wrap.jpg"] {
         if !jpeg_dir.join(name).is_file() {
             return Err(format!("missing {name} after rasterize"));
         }
@@ -442,6 +468,10 @@ fn write_interior(roster: &Roster, jpeg_dir: &Path, out: &Path) -> Result<(), St
 }
 
 fn write_wrap(roster: &Roster, jpeg_dir: &Path, out: &Path) -> Result<CoverPdfReport, String> {
+    let flat = jpeg_dir.join("cover-wrap.jpg");
+    if flat.is_file() {
+        return write_flat_wrap(&flat, roster, out);
+    }
     let pages = interior_pages(roster);
     let mut doc = CoverDoc::new(
         roster.title_en.as_str(),
@@ -463,6 +493,31 @@ fn write_wrap(roster: &Roster, jpeg_dir: &Path, out: &Path) -> Result<CoverPdfRe
     doc.front_image = Some(jpeg_uri(&jpeg_dir.join("cover-front.jpg"))?);
     doc.back_image = Some(jpeg_uri(&jpeg_dir.join("cover-back.jpg"))?);
     render_wrap_pdf(&doc, out)
+}
+
+/// One JPEG, exact wrap MediaBox, no Helvetica — KDP Cover slot.
+fn write_flat_wrap(jpeg: &Path, roster: &Roster, out: &Path) -> Result<CoverPdfReport, String> {
+    let bytes = std::fs::read(jpeg).map_err(|e| format!("read {}: {e}", jpeg.display()))?;
+    let info = jpeg_info(&bytes).ok_or_else(|| format!("not jpeg: {}", jpeg.display()))?;
+    if info.space != crate::preflight::JpegSpace::Rgb {
+        return Err(format!("{} is not RGB JPEG", jpeg.display()));
+    }
+    let pages = interior_pages(roster);
+    let trim = find_trim(PAPERBACK_TRIMS, "8.5x11").expect("8.5x11");
+    let cover = paperback_cover(trim, pages, Paper::PremiumColor).expect("cover math");
+    let mut pb = PdfPageBuilder::new(cover.w * 72.0, cover.h * 72.0);
+    let idx = pb.add_image(info.w, info.h, bytes);
+    pb.draw_image_contain(idx, 0.0, 0.0, cover.w * 72.0, cover.h * 72.0);
+    let pdf = pb.build("");
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir wrap: {e}"))?;
+    }
+    std::fs::write(out, &pdf).map_err(|e| format!("write wrap: {e}"))?;
+    Ok(CoverPdfReport {
+        image_placed: true,
+        bytes: pdf.len(),
+        ..CoverPdfReport::default()
+    })
 }
 
 fn jpeg_uri(path: &Path) -> Result<String, String> {
@@ -716,12 +771,17 @@ PRINT OPTIONS\n\
   Page count KDP will read from the PDF: {pages} (even)\n\
   Spine (our math): {spine:.4} in\n\
   Wrap file size (our math): {ww:.4} x {wh:.4} in\n\n\
-UPLOAD (two different files — easy to swap)\n\
-  Manuscript slot: interior.pdf     (8.500 x 11.000 in, {pages} pages)\n\
-  Cover slot:      cover-wrap.pdf   ({ww:.3} x {wh:.3} in, ONE page)\n\
+UPLOAD (one file at a time — wait for Processing complete)\n\
+  1. Manuscript slot: interior.pdf\n\
+     (8.500 x 11.000 in, {pages} pages, white title page)\n\
+     Wait until Print Options shows {pages} pages.\n\
+  2. Cover slot: cover.pdf\n\
+     ({ww:.3} x {wh:.3} in, ONE page, garage + Cobra, no fonts)\n\
+     Same bytes as {wrap_name}.\n\
   If Previewer says expected {ww:.3}x{wh:.3} but submitted 8.500x11.000,\n\
-  the Cover slot got interior.pdf. Re-upload cover-wrap.pdf there.\n\
-  Do not use Cover Creator.\n\n\
+  the Cover slot still has interior.pdf. Delete Cover, upload cover.pdf.\n\
+  Do not use Cover Creator. If the spinner never finishes: close, incognito,\n\
+  manuscript first, wait, then cover.pdf only.\n\n\
 AFTER UPLOAD\n\
   Open KDP Print Preview. Check: barcode sits in the empty back corner;\n\
   spine text is readable; no art in the gutter; color plates are color;\n\
@@ -734,6 +794,7 @@ AFTER UPLOAD\n\
         spine = spine,
         ww = cover.w,
         wh = cover.h,
+        wrap_name = WRAP_UPLOAD_NAME,
     )
 }
 

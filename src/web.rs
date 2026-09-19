@@ -138,12 +138,13 @@ pub fn router(state: Arc<AppState>) -> Router {
 
 /// Run the previewer/service until the process exits. Bind only to loopback.
 pub async fn serve_web(books: Vec<LoadedBook>, addr: &str) -> Result<(), String> {
-    let drafts_root = std::path::PathBuf::from("workspace/drafts");
+    let home = crate::paths::home();
+    let drafts_root = home.join("workspace").join("drafts");
     let state = Arc::new(AppState {
         books,
-        root: std::path::PathBuf::from("."),
+        root: home.clone(),
         drafts_root,
-        products_root: std::path::PathBuf::from("products"),
+        products_root: home.join("products"),
     });
     println!("rebook web service: http://{addr}/");
     println!(

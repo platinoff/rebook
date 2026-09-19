@@ -1101,9 +1101,34 @@ pub struct LoadedBook {
 /// (OPF + spine) into a `Book`. This is the "just drop an epub and watch it"
 /// behaviour.
 pub fn discover_books(dir: &std::path::Path) -> Result<Vec<LoadedBook>, String> {
+    discover_books_limited(dir, 6)
+}
+
+/// Same as [`discover_books`] across several roots, de-duplicated by path.
+pub fn discover_books_many(roots: &[std::path::PathBuf]) -> Result<Vec<LoadedBook>, String> {
     let mut out = Vec::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(d) = stack.pop() {
+    let mut seen = std::collections::HashSet::new();
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        for b in discover_books(root)? {
+            if seen.insert(b.path.clone()) {
+                out.push(b);
+            }
+        }
+    }
+    out.sort_by(|a, b| a.book.title.cmp(&b.book.title));
+    Ok(out)
+}
+
+fn discover_books_limited(
+    dir: &std::path::Path,
+    max_depth: u32,
+) -> Result<Vec<LoadedBook>, String> {
+    let mut out = Vec::new();
+    let mut stack = vec![(dir.to_path_buf(), 0u32)];
+    while let Some((d, depth)) = stack.pop() {
         let entries = std::fs::read_dir(&d).map_err(|e| format!("Немає доступу до {d:?}: {e}"))?;
         for ent in entries.flatten() {
             let p = ent.path();
@@ -1112,11 +1137,21 @@ pub fn discover_books(dir: &std::path::Path) -> Result<Vec<LoadedBook>, String> 
                 let name = p.file_name().map(|s| s.to_string_lossy().into_owned());
                 if matches!(
                     name.as_deref(),
-                    Some(".git" | "target" | "node_modules" | ".cargo" | "products")
+                    Some(
+                        ".git"
+                            | "target"
+                            | "node_modules"
+                            | ".cargo"
+                            | "products"
+                            | "AppData"
+                            | "$Recycle.Bin"
+                    )
                 ) {
                     continue;
                 }
-                stack.push(p);
+                if depth < max_depth {
+                    stack.push((p, depth + 1));
+                }
                 continue;
             }
             if p.extension().is_some_and(|e| e == "epub")

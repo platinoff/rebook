@@ -1,7 +1,7 @@
 # Rebook — roadmap (після RB-38)
 
 Тікети живуть на **GSV board**, product `rebook` (`RB-*`). Цей файл — канон
-черги. **RB-40…52 landed**. Next = RB-53 (paperback wrap).
+черги. **RB-40…53 landed**. Portable binary = `init` + `--dir` / `REBOOK_HOME`.
 
 ## Landed (RB-40…52)
 

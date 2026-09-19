@@ -21,6 +21,7 @@ pub mod icc;
 pub mod interior;
 pub mod interior_pdf;
 pub mod kdp;
+pub mod paths;
 pub mod pdfwriter;
 pub mod preflight;
 pub mod shelf;
@@ -90,7 +91,7 @@ pub fn load_chapters<P: AsRef<Path>>(dir: P, book: &Book) -> Result<Vec<Chapter>
     let base: PathBuf = dir.as_ref().to_path_buf();
     let mut chapters = Vec::with_capacity(book.chapters.len());
     for meta in &book.chapters {
-        let path = base.join(&meta.file);
+        let path = crate::paths::safe_under(&base, &meta.file)?;
         let content = std::fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read {}: {}", meta.file, e))?;
         chapters.push(Chapter {
@@ -100,4 +101,28 @@ pub fn load_chapters<P: AsRef<Path>>(dir: P, book: &Book) -> Result<Vec<Chapter>
         });
     }
     Ok(chapters)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_chapters_rejects_parent_dir() {
+        let book = Book {
+            title: "t".into(),
+            author: "a".into(),
+            edition: 1,
+            year: 2026,
+            format: String::new(),
+            language: "en".into(),
+            isbn: None,
+            chapters: vec![ChapterMeta {
+                number: 1,
+                title: "x".into(),
+                file: "../secret.md".into(),
+            }],
+        };
+        assert!(load_chapters(".", &book).is_err());
+    }
 }

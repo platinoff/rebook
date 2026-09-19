@@ -17,6 +17,7 @@
 
 <p align="center">
   <a href="#-why-rebook">Why rebook</a> ·
+  <a href="#-portable-binary">Portable binary</a> ·
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-commands">Commands</a> ·
   <a href="#-the-sample-book">Sample book</a> ·
@@ -37,9 +38,69 @@ rebook is a standalone **Rust** crate (`edition 2021`, `tokio`, `zip`) — no Py
 | **Local previewer** | `view` → [http://127.0.0.1:8090/](http://127.0.0.1:8090/) — loopback only, multi-book shelf, dark theme, per-chapter pagination |
 | **KDP gate** | `/check` flags forbidden constructs, unescaped `& < >`, missing TOC, and required entries — green/red list |
 | **Out of the box** | ships a tiny MIT **sample book** under `samples/`, so a fresh clone runs `view` with zero setup |
+| **Portable binary** | copy `rust_book` / `rust_book.exe` into any folder — `init` + your `book.json` + `chapters/`. No Cargo after the first build |
 | **Your book stays local** | the author's real content is gitignored (`book.json`, `chapters/`) — only the tool and the sample are pushed |
 
 The hero / flow tiles below are **SMIL SVG** (no JS). GitHub plays `<animate>` inside an `<img>`; that is why they move.
+
+---
+
+## Portable binary
+
+The release executable is the whole app (UI is compiled in). A person who never clones this repo can still make their own book.
+
+```text
+your-folder/
+├── rust_book.exe          # or rust_book on Linux/macOS
+├── book.json              # your metadata
+├── chapters/01.md …
+├── cover.png              # optional
+├── build/book.epub        # produced
+└── workspace/drafts/      # Studio, created on first view
+```
+
+```bash
+# 1. Put the binary in an empty folder (not System32 / Program Files).
+# 2. Scaffold a book (or rust_book init --sample for the MIT demo):
+rust_book init
+
+# 3. Edit book.json + chapters/*.md, then:
+rust_book build-epub
+rust_book check
+rust_book view --port 8090
+```
+
+Open [http://127.0.0.1:8090/](http://127.0.0.1:8090/). The server **binds loopback only**.
+
+Drop extra `*.epub` files next to the binary (or under `books/`) — the shelf picks them up. Another project folder:
+
+```bash
+rust_book --dir D:/my-other-book init
+rust_book --dir D:/my-other-book build-epub
+rust_book --dir D:/my-other-book view
+```
+
+Same idea with `REBOOK_HOME`. The binary will not use a Windows system directory as its data home.
+
+`book.json` shape:
+
+```json
+{
+  "title": "My Book",
+  "author": "Author Name",
+  "edition": 1,
+  "year": 2026,
+  "format": "EPUB 3.2",
+  "language": "en",
+  "chapters": [
+    { "number": 1, "title": "Chapter 1", "file": "chapters/01.md" }
+  ]
+}
+```
+
+Chapter `file` paths must stay inside the project (`../` is rejected).
+
+From this repo the binary is `target/release/rust_book` (`cargo build --release`). Copy that file; you do not copy `src/` or `ui/`.
 
 ---
 
@@ -83,10 +144,12 @@ cargo run --release -- view         # preview at 127.0.0.1:8090
 
 | Command | What it does |
 |---|---|
+| `init` | Create `book.json` + `chapters/01.md` in the data home (`--sample` writes the MIT demo) |
 | `build-epub` | Build a strict EPUB 3.2 from `book.json` + `chapters/` (or the bundled sample when none is present) |
 | `md` | Render the whole book to a single markdown export (stays in sync with the EPUB source) |
 | `check` | Validate the built EPUB: mimetype-first, required entries, OPF metadata, spine, nav TOC, escaped XHTML |
 | `view` | Local KDP EPUB previewer server → [http://127.0.0.1:8090/](http://127.0.0.1:8090/) |
+| `--dir` / `REBOOK_HOME` | Portable data folder (books, drafts, build). Refuses Windows system directories |
 | `convert` · `kdp` | Deprecated — KDP accepts a valid EPUB directly, no local AZW3/KFX step |
 
 ---
@@ -134,6 +197,7 @@ rebook/
 - **Rust only.** No Python, no Java. The build is entirely `cargo`; the EPUB is written with the `zip` crate, no external tooling.
 - **One commit per change.** This repo keeps a single history line, mirroring the same discipline the rest of the toolchain uses.
 - **Loopback only.** `view` binds to `127.0.0.1` so the previewer is never exposed on the network.
+- **Portable home.** Chapter paths cannot contain `..`. The previewer walks at most 6 directory levels and skips `target` / `.git` / `AppData`.
 
 ---
 

@@ -62,6 +62,9 @@ pub struct PdfPageBuilder {
     used_cids: Vec<std::collections::BTreeSet<u16>>,
     images: Vec<RasterImage>,
     pdfx: Option<PdfxProfile>,
+    /// True after [`text`] writes `/F1`. KDP flags unused Helvetica as
+    /// "fonts not embedded" and can stall cover processing.
+    helvetica_used: bool,
 }
 
 impl PdfPageBuilder {
@@ -77,6 +80,7 @@ impl PdfPageBuilder {
             used_cids: Vec::new(),
             images: Vec::new(),
             pdfx: None,
+            helvetica_used: false,
         }
     }
 
@@ -134,22 +138,14 @@ impl PdfPageBuilder {
         };
         let ox = x + (w - sw) / 2.0;
         let oy = y + (h - sh) / 2.0;
-        if fill {
-            writeln!(self.ops, "q {:.4} {:.4} {:.4} {:.4} re W n", x, y, w, h).ok();
-            writeln!(
-                self.ops,
-                "q {:.5} 0 0 {:.5} {:.4} {:.4} cm /Im{idx} Do Q Q",
-                sw, sh, ox, oy
-            )
-            .ok();
-        } else {
-            writeln!(
-                self.ops,
-                "q {:.5} 0 0 {:.5} {:.4} {:.4} cm /Im{idx} Do Q",
-                sw, sh, ox, oy
-            )
-            .ok();
-        }
+        // No `W n` clip: KDP's browser Print Previewer has crashed on clip
+        // paths (and on 120-image resource dicts copied onto every page).
+        writeln!(
+            self.ops,
+            "q {:.5} 0 0 {:.5} {:.4} {:.4} cm /Im{idx} Do Q",
+            sw, sh, ox, oy
+        )
+        .ok();
     }
 
     /// Finish the current page and start another one of the given size.
@@ -239,6 +235,7 @@ impl PdfPageBuilder {
             size, x, y, esc
         )
         .ok();
+        self.helvetica_used = true;
         true
     }
 
@@ -350,13 +347,14 @@ impl PdfPageBuilder {
         let emb = &self.embedded;
         let used = &self.used_cids;
         let e = emb.len();
+        let use_f1 = self.helvetica_used;
         // object layout: 1 cat, 2 pages, per page p: 3+2p page, 4+2p content,
-        // base = 3+2k: F1 = base+1, then per font i: Type0 base+2+4i,
-        // CIDFont +1, Descriptor +2, FontFile2 +3; Info/XMP/OI/ICC last.
-        // base is itself F1 (no gap after the per-page 3+2p / 4+2p pairs).
+        // then optional Helvetica F1, then per embedded font Type0+CID+FD+FF,
+        // then images, then Info/XMP/OI/ICC.
         let base: u32 = 3 + 2 * k as u32;
         let f1 = base;
-        let img0 = base + 1 + 4 * e as u32;
+        let f1_objs: u32 = if use_f1 { 1 } else { 0 };
+        let img0 = base + f1_objs + 4 * e as u32;
         let ni = self.images.len() as u32;
         let info_n = img0 + ni;
         let px = self.pdfx.clone();
@@ -401,9 +399,19 @@ impl PdfPageBuilder {
             2,
             format!("<< /Type /Pages /Kids {kids} /Count {k} >>").as_bytes(),
         );
-        let mut fonts = format!("/F1 {f1} 0 R");
+        let mut fonts = String::new();
+        if use_f1 {
+            fonts.push_str(&format!("/F1 {f1} 0 R"));
+        }
         for i in 0..e {
-            fonts.push_str(&format!(" /F{} {} 0 R", 2 + i, base + 1 + 4 * i as u32));
+            if !fonts.is_empty() {
+                fonts.push(' ');
+            }
+            fonts.push_str(&format!(
+                "/F{} {} 0 R",
+                2 + i,
+                base + f1_objs + 4 * i as u32
+            ));
         }
         for (p, (w, h, content, imgs)) in all_pages.iter().enumerate() {
             let page_no = 3 + 2 * p as u32;
@@ -416,8 +424,17 @@ impl PdfPageBuilder {
                 }
                 xobjs.push_str(" >>");
             }
-            let resources =
-                format!("<< /ProcSet [/PDF /Text /ImageC] /Font << {fonts} >>{xobjs} >>");
+            let font_res = if fonts.is_empty() {
+                String::new()
+            } else {
+                format!(" /Font << {fonts} >>")
+            };
+            let proc = if fonts.is_empty() {
+                "[/PDF /ImageC]"
+            } else {
+                "[/PDF /Text /ImageC]"
+            };
+            let resources = format!("<< /ProcSet {proc}{font_res}{xobjs} >>");
             let mut page = format!(
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /CropBox [0 0 {:.4} {:.4}]",
                 w, h, w, h
@@ -440,15 +457,17 @@ impl PdfPageBuilder {
             out.extend_from_slice(content);
             out.extend_from_slice(b"\nendstream\nendobj\n");
         }
-        obj(
-            &mut out,
-            &mut offsets,
-            f1,
-            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
-        );
+        if use_f1 {
+            obj(
+                &mut out,
+                &mut offsets,
+                f1,
+                b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            );
+        }
         for (i, f) in emb.iter().enumerate() {
             let u = used.get(i).cloned().unwrap_or_default();
-            let type0 = base + 1 + 4 * i as u32;
+            let type0 = base + f1_objs + 4 * i as u32;
             let cid_n = type0 + 1;
             let fd_n = type0 + 2;
             let ff_n = type0 + 3;
@@ -721,6 +740,10 @@ mod tests {
         assert!(!p1.contains("/Im0"), "page 1 must not pull Im0");
         let doc = lopdf::Document::load_mem(&bytes).expect("lopdf");
         assert_eq!(doc.get_pages().len(), 2);
+        assert!(
+            !s.contains("/Helvetica"),
+            "image-only PDF must not declare Helvetica (KDP cover stall)"
+        );
     }
 
     #[test]

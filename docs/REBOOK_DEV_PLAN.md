@@ -1,7 +1,11 @@
 # Rebook — Development Plan (band 233, started 2026-09-11)
 
-Product: **one portable web service** (single Rust binary, loopback `127.0.0.1:8090`)
-with two worlds:
+Product: **one portable binary** (`rust_book` / `rust_book.exe`, loopback
+`127.0.0.1:8090`). Copy the exe into a folder, `init`, add `book.json` +
+`chapters/` — no Cargo, no git checkout. Data home = `--dir` / `REBOOK_HOME` /
+cwd if it already looks like a rebook folder / else the exe directory.
+
+Two worlds:
 
 - **Studio** — draft area. Books-in-progress, AI-assisted writing, files in
   `.md` / `.mdc` / `.html` / `.svg` / images. Nothing leaves the machine.
