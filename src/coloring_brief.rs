@@ -41,7 +41,20 @@ pub struct BriefItem {
     pub custom: String,
     pub aspect: f64,
     pub frame: PxBox,
+    /// Identity plates only: the exact three caption lines, nothing else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
 }
+
+/// Identity plate look (dark garage scene, vehicle up top, serif caption below).
+pub const IDENTITY_STYLE: &str = "Photoreal vehicle in the upper half of a dark, moody garage; \
+large centered cream classic-serif caption in the lower third: exactly year / MAKE / Model on three \
+lines, no other words (the book-1 plates leaked a stray \"ONCE\" — never repeat it).";
+
+/// Contour look (matches book 1).
+pub const CONTOUR_STYLE: &str = "Thin uniform black outlines on white, moderate detail, no ground \
+line, vehicle centered with generous margins. Profile = flat 90° side elevation. Reference only the \
+same vehicle's color plate: a style reference of another vehicle gets copied.";
 
 /// Whole brief for the active roster.
 #[derive(Debug, Clone, Serialize)]
@@ -86,6 +99,12 @@ pub fn build(roster: &Roster) -> Result<Brief, String> {
             custom: car.custom.clone(),
             aspect: crate::coloring_svg::frame_aspect(kind, View::ThreeQuarter),
             frame: px(&tq),
+            caption: Some(format!(
+                "{} / {} / {}",
+                car.year,
+                car.make.to_uppercase(),
+                car.model
+            )),
         });
         for (i, view) in views_for(car).into_iter().enumerate() {
             let b = subject_box(&safe, kind, view);
@@ -98,6 +117,7 @@ pub fn build(roster: &Roster) -> Result<Brief, String> {
                 custom: car.custom.clone(),
                 aspect: crate::coloring_svg::frame_aspect(kind, view),
                 frame: px(&b),
+                caption: None,
             });
         }
     }
@@ -138,7 +158,8 @@ fn view_name(v: View) -> &'static str {
 
 fn to_markdown(b: &Brief) -> String {
     let mut md = format!(
-        "# Art brief — {}\n\n**Rule:** {}\n\nCanvas {}×{} px, white background. Contour plates: black line only, no fills, no gray. \
+        "# Art brief — {}\n\n**Rule:** {}\n\n**Identity plate:** {IDENTITY_STYLE}\n\n**Contours:** {CONTOUR_STYLE}\n\n\
+Canvas {}×{} px (3:4). Contour plates: black line only, no fills, no gray. \
 Keep the vehicle inside the frame box; nothing in the outer margin.\n",
         b.title, b.rule, b.canvas_w, b.canvas_h
     );
@@ -153,8 +174,13 @@ Keep the vehicle inside the frame box; nothing in the outer margin.\n",
             ));
             last = it.vehicle.clone();
         }
+        let caption = it
+            .caption
+            .as_ref()
+            .map(|c| format!(" · caption «{c}»"))
+            .unwrap_or_default();
         md.push_str(&format!(
-            "| `{}` | {}{} | {},{},{},{} | {:.2} |\n",
+            "| `{}` | {}{}{caption} | {},{},{},{} | {:.2} |\n",
             it.file,
             it.view,
             if it.color { " · color" } else { "" },
@@ -185,8 +211,20 @@ mod tests {
             assert!(it.frame.w > 0 && it.frame.h > 0);
         }
         assert_eq!(b.rule, DEFAULT_RULE);
+        assert_eq!(
+            b.items[0].caption.as_deref(),
+            Some("1959 / CADILLAC / Eldorado Biarritz")
+        );
+        assert!(
+            b.items
+                .iter()
+                .filter(|i| !i.color)
+                .all(|i| i.caption.is_none())
+        );
         let md = to_markdown(&b);
         assert!(md.contains("| `") && md.contains("Custom build"));
+        assert!(md.contains("caption «1959 / CADILLAC / Eldorado Biarritz»"));
+        assert!(md.contains("flat 90° side elevation"));
     }
 
     #[test]
