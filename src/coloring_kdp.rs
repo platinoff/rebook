@@ -745,11 +745,10 @@ AUTHOR\n\
   {author}\n\n\
 DESCRIPTION (paste)\n\
   Classic American Iron is an adult coloring book of twenty-four legendary\n\
-  U.S. cars. Each model opens with one full-color identity plate -- make,\n\
-  model, and year, once -- then four black contour views: three-quarter,\n\
-  profile, rear, and front. Cadillac fins, a split-window Sting Ray, a Cobra\n\
-  427, Chargers, 'Cudas, Mustangs, Chevelles, and more. Pencil and crayon on\n\
-  the contour pages; slip a sheet under markers.\n\n\
+  U.S. cars from the 1930s through the early 1970s. Each model opens with\n\
+  one full-color identity plate -- make, model, and year, once -- then four\n\
+  black contour views: three-quarter, profile, rear, and front. Pencil and\n\
+  crayon on the contour pages; slip a sheet under markers.\n\n\
 PUBLISHING RIGHTS\n\
   I own the copyright and I hold the necessary publishing rights\n\n\
 AUDIENCE\n\
@@ -757,9 +756,14 @@ AUDIENCE\n\
 CATEGORIES (pick two close matches)\n\
   Nonfiction > Crafts, Hobbies & Home > Coloring Books for Grown-Ups\n\
   Nonfiction > Transportation > Automotive\n\n\
-KEYWORDS (seven)\n\
-  coloring book, classic cars, muscle cars, american cars, mustang,\n\
-  corvette, adult coloring\n\n\
+KEYWORDS (seven -- no brand names, no other authors, no free/bestseller)\n\
+  adult coloring book\n\
+  classic cars\n\
+  muscle cars\n\
+  vintage cars\n\
+  car coloring\n\
+  american automobiles\n\
+  hot rod coloring\n\n\
 ISBN\n\
   Get a free KDP ISBN. Do not upload your own barcode -- the wrap leaves\n\
   the lower-right of the back cover empty for Amazon's stamp.\n\n\
