@@ -33,7 +33,7 @@ Coloring book = `--book DIR` / `REBOOK_BOOK` (локальна тека: `roster
 - ~~**RB-56**~~ landed — `--book DIR`: roster/art/listing/output з локальної теки; KDP-текст (опис, keywords, категорії, присвята) пішов з `src/coloring_kdp.rs` у `listing.json`.
 - ~~**RB-57**~~ landed — `kdp_lint`: марки/моделі з ростера (з множиною), `listing.json` `deny`/`allow`, «free»/bestseller/#1, ≤7 keywords ≤50 символів. `coloring-kdp` падає, `/kdp` показує, `coloring-lint` — швидка перевірка.
 - ~~**RB-58**~~ landed — `BodyKind` (`car`/`pickup`/`long-hood`/`cabover`, «heavy» = помилка) у `kdp_ok`; `frame_aspect` + `subject_box` на ракурс; без мастера нелегковий кузов отримує пунктирну рамку «art pending» замість легковика; `coloring-brief` пише `art-brief.json/.md` (2400×3200, рамка в px, custom build, `rule` з ростера) у `DIR/build/brief`; Studio-чернетка: id з `roster.id`, присвята/іменник з `listing.json` (`dedication_uk`, `noun_plural_uk`).
-1. **RB-59** — арт-бенд книги №2 за `art-brief`: identity + 4 контури, той самий білд (`custom`), без значків.
+1. **RB-59** — арт-бенд книги №2 за `art-brief`: identity + 4 контури, той самий білд (`custom`), без значків. **У роботі:** гейт `coloring-art-check` landed (PNG/JPEG, 3:4, контур без кольору/сірого/заливок, identity не лайн-арт; книга 1 = 120/120); пілот 2 моделі (long-hood + pickup) = 10/120 GREEN. Процес: кольорова identity → контури з неї як reference; профіль просити «flat 90° side elevation», інакше модель повторює ¾.
 2. **RB-60** — wrap книги №2 + KDP-пакет + `/kdp`.
 3. **RB-61** — preflight і публікація книги №2.
 
