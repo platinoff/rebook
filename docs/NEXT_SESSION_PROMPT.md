@@ -1,24 +1,21 @@
 # Rebook — Next Session Prompt
 
 1. **Owner product pick: rebook.** Window `S:/rust/rebook`. `agi` = keep-live +
-   tickets then RB-53 (paperback wrap for Classic American Iron).
-2. **State: RB-40…52 landed.** Studio seed: `cargo run -- coloring-draft`.
-   SVG plates via `cargo run -- coloring-plates`.
-   Canon: [`COLORING_CARS.md`](./COLORING_CARS.md) (8.5×11, 24 cars, 46 plates, 104 p).
-   Prior: cover sniff, OPF ISBN, GSV nav, write-then-translate, Studio pages,
-   hyphenation, FOGRA39, print-art DPI, view3d CSS pages, AI translate + box FS.
-   App = portable web on **127.0.0.1:8090**. Restart after code change:
-   `bash /s/rust/rebook/scripts/rebuild-restart.sh` (`include_str!` UI).
-3. **Concept:** three KDP types (ebook / paperback / hardcover) + `/view3d`.
-   Coloring book = paperback SKU. Author writes uk, forks en. Vulkan is **out**.
-4. **Next band = RB-53:** paperback wrap (color cover, barcode, spine text).
-   Then RB-54 3D → RB-55 preflight before publish.
-5. **Known live data:** EN print-art must be re-exported ≥1800×2700 px for 6×9;
-   set `en/book.json` isbn and rebuild EPUB so OPF has `urn:isbn:`; HC pages
-   still ESTIMATED for `en/`.
+   GSV tickets (product `rebook`), take the next open RB in order.
+2. **State: RB-40…55 landed.** Coloring paperback #1 is live on KDP. Pipeline:
+   `coloring-draft` → `coloring-kdp` (interior.pdf 130 p + one-JPEG wrap, no
+   fonts) → local Print Previewer `/kdp`. Portable binary: `init`, `--dir`,
+   `REBOOK_HOME`.
+3. **Next band = RB-56…61** (book #2 on the same machine). Book plan, roster,
+   covers and listing copy live in `workspace/plans/` — **gitignored**. Never
+   commit book text or put it in ticket bodies; git gets rebook software only.
+4. **Lessons baked in:** KDP rejects brand names in keywords/description; Helvetica
+   in the wrap PDF stalls the previewer; Cover slot ≠ manuscript slot; 79 pages is
+   the spine-text minimum, not a cap.
+5. App = portable web on **127.0.0.1:8090** (`cargo run -- view`). UI is
+   `include_str!`, restart after code change.
 6. Keep green: `cargo fmt -- --check` → `cargo clippy --all-targets` →
-   `cargo test`. `git commit -F target/msg.txt`.
+   `cargo test`.
 
 Sources: [`HANDOFF_NEW_SESSION.md`](./HANDOFF_NEW_SESSION.md) ·
-[`ROADMAP.md`](./ROADMAP.md) · [`CONCEPT.md`](./CONCEPT.md) ·
-[`COLORING_CARS.md`](./COLORING_CARS.md).
+[`ROADMAP.md`](./ROADMAP.md) · [`CONCEPT.md`](./CONCEPT.md).

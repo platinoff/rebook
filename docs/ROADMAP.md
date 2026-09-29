@@ -25,10 +25,17 @@
 
 ## Наступна черга (логічний порядок для `agi`)
 
-1. **RB-53** — paperback wrap (color cover, barcode, spine text ok at 104 p).
-2. **RB-54** — `/view3d` 8.5×11 spread proof.
-3. **RB-55** — `print/check` + KDP checklist before publish.
-4. **RB-56** — EPUBCheck-еквівалент v2 (зовнішні URL, script, ISBN per format).
+Книжкові плани (ростер, кастоми, обкладинка, метадані) живуть **локально** у
+`workspace/plans/<book>/` (gitignored). Тут і в тікетах — тільки ПЗ.
+
+1. **RB-56** — coloring pipeline з локальної теки книги (`--book DIR`); книжковий текст виходить з `src/` і `samples/`.
+2. **RB-57** — лінт метаданих KDP: бренди/чужі автори/«free» у keywords і описі = FAIL.
+3. **RB-58** — kit: типи транспорту з різними пропорціями (пікап / long-hood / cabover).
+4. **RB-59** — арт-бенд книги №2: identity + 4 контури, той самий білд, без значків.
+5. **RB-60** — wrap книги №2 + KDP-пакет + `/kdp`.
+6. **RB-61** — preflight і публікація книги №2.
+
+Пізніше: `/view3d` 8.5×11 spread proof; EPUBCheck-еквівалент v2.
 
 Не брати Vulkan у цю чергу (див. research).
 
