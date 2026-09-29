@@ -129,6 +129,16 @@ fn main() {
                 }
             }
         }
+        "coloring-art-check" => {
+            let verbose = args.iter().any(|a| a == "--stats");
+            match coloring_art_check(verbose) {
+                Ok(msg) => println!("{msg}"),
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         "coloring-lint" => match coloring_lint() {
             Ok(n) => println!("✓ KDP metadata clean ({n} keywords)"),
             Err(e) => {
@@ -250,6 +260,9 @@ fn print_help() {
     println!("  coloring-kdp [DIR]     Coloring paperback: interior.pdf + cover wrap + KDP.txt");
     println!("  coloring-lint          KDP metadata lint (brands, claims, keyword limits)");
     println!("  coloring-brief [DIR]   Art brief: per-master view, body-kind frame, custom build");
+    println!(
+        "  coloring-art-check     Master PNG gate: all present, 3:4, line art / color [--stats]"
+    );
     println!("  convert · kdp          Deprecated — upload the EPUB to KDP");
 }
 
@@ -758,6 +771,57 @@ fn coloring_plates(dir: &str) -> Result<usize, String> {
 fn coloring_draft(dir: &str) -> Result<(String, String), String> {
     let (uk, en) = rust_book::coloring_draft::seed(Path::new(dir))?;
     Ok((uk.id, en.id))
+}
+
+fn coloring_art_check(verbose: bool) -> Result<String, String> {
+    use rust_book::coloring_artcheck as ac;
+    let roster = rust_book::coloring::load_roster()?;
+    let art = rust_book::coloring_svg::art_dir();
+    if verbose {
+        let mut names: Vec<_> = std::fs::read_dir(&art)
+            .map_err(|e| format!("{}: {e}", art.display()))?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x == "png"))
+            .collect();
+        names.sort();
+        for p in names {
+            let bytes = std::fs::read(&p).map_err(|e| e.to_string())?;
+            if let Ok(s) = ac::image_stats(&bytes) {
+                println!(
+                    "{:<52} {}x{} white {:.3} dark {:.3} gray {:.3} color {:.3}",
+                    p.file_name().unwrap_or_default().to_string_lossy(),
+                    s.w,
+                    s.h,
+                    s.white,
+                    s.dark,
+                    s.gray,
+                    s.color
+                );
+            }
+        }
+    }
+    let rep = ac::check(&roster, &art);
+    let mut out = format!(
+        "{} / {} masters present in {}",
+        rep.present,
+        rep.expected,
+        art.display()
+    );
+    for i in &rep.issues {
+        out.push_str(&format!("\n  ✗ {}: {}", i.file, i.reason));
+    }
+    if !rep.missing.is_empty() {
+        out.push_str(&format!(
+            "\n  missing {}: {}",
+            rep.missing.len(),
+            rep.missing.join(", ")
+        ));
+    }
+    if rep.ok() {
+        Ok(format!("✓ {out}"))
+    } else {
+        Err(out)
+    }
 }
 
 fn coloring_lint() -> Result<usize, String> {

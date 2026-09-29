@@ -13,6 +13,8 @@ axum = "0.8"
 tokio-stream = { version = "0.1", features = ["sync"] }
 genpdf = "0.2"
 hypher = { version = "0.1", default-features = false, features = ["alloc", "english", "ukrainian"] }
+png = "0.18"
+jpeg-decoder = { version = "0.3", default-features = false }
 
 [dev-dependencies]
 tower = "0.5"
