@@ -21,6 +21,7 @@ pub mod icc;
 pub mod interior;
 pub mod interior_pdf;
 pub mod kdp;
+pub mod kdp_lint;
 pub mod paths;
 pub mod pdfwriter;
 pub mod preflight;

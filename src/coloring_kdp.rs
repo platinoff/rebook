@@ -51,6 +51,10 @@ pub struct Listing {
     pub dedication: String,
     /// One-line hint of the cover art for the upload checklist.
     pub cover_note: String,
+    /// Extra blocked terms (other authors, series) for the metadata lint.
+    pub deny: Vec<String>,
+    /// Roster words the lint may let through (generic in this book).
+    pub allow: Vec<String>,
 }
 
 /// Listing of the active book, generic defaults filled from the roster.
@@ -247,6 +251,17 @@ pub fn preview_meta(dir: &Path) -> PreviewMeta {
                 error: true,
                 title: "Page count".into(),
                 detail: format!("Roster wants {pages} pages, PDF /Count is {n}"),
+            });
+        }
+    }
+    if let Some(r) = roster.as_ref()
+        && let Ok(listing) = load_listing(r)
+    {
+        for h in crate::kdp_lint::lint_listing(r, &listing) {
+            issues.push(PreviewIssue {
+                error: true,
+                title: format!("Metadata: {}", h.field),
+                detail: crate::kdp_lint::describe(std::slice::from_ref(&h)),
             });
         }
     }
@@ -493,6 +508,13 @@ pub fn package(out_dir: &Path) -> Result<KdpFiles, String> {
     let roster = load_roster()?;
     kdp_ok(&roster)?;
     let listing = load_listing(&roster)?;
+    let hits = crate::kdp_lint::lint_listing(&roster, &listing);
+    if !hits.is_empty() {
+        return Err(format!(
+            "KDP metadata lint failed (fix listing.json):\n{}",
+            crate::kdp_lint::describe(&hits)
+        ));
+    }
     std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir kdp: {e}"))?;
     let jpeg_dir = out_dir.join("jpeg");
     let pages = interior_pages(&roster);

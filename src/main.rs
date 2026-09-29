@@ -114,6 +114,13 @@ fn main() {
                 }
             }
         }
+        "coloring-lint" => match coloring_lint() {
+            Ok(n) => println!("✓ KDP metadata clean ({n} keywords)"),
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        },
         "init" => match init_project(&args[2..]) {
             Ok(dir) => println!("✓ book project ready in {}", dir.display()),
             Err(e) => {
@@ -225,6 +232,8 @@ fn print_help() {
     println!("  shelf                  product.json → ebook / paperback / hardcover");
     println!("  check-print [DIR]      Print-gate on a products folder");
     println!("  interior-pdf [TRIM]    Interior PDF for the resolved book");
+    println!("  coloring-kdp [DIR]     Coloring paperback: interior.pdf + cover wrap + KDP.txt");
+    println!("  coloring-lint          KDP metadata lint (brands, claims, keyword limits)");
     println!("  convert · kdp          Deprecated — upload the EPUB to KDP");
 }
 
@@ -733,6 +742,20 @@ fn coloring_plates(dir: &str) -> Result<usize, String> {
 fn coloring_draft(dir: &str) -> Result<(String, String), String> {
     let (uk, en) = rust_book::coloring_draft::seed(Path::new(dir))?;
     Ok((uk.id, en.id))
+}
+
+fn coloring_lint() -> Result<usize, String> {
+    let roster = rust_book::coloring::load_roster()?;
+    let listing = rust_book::coloring_kdp::load_listing(&roster)?;
+    let hits = rust_book::kdp_lint::lint_listing(&roster, &listing);
+    if hits.is_empty() {
+        Ok(listing.keywords.len())
+    } else {
+        Err(format!(
+            "KDP metadata lint:\n{}",
+            rust_book::kdp_lint::describe(&hits)
+        ))
+    }
 }
 
 fn coloring_kdp(dir: &str) -> Result<(), String> {
