@@ -6,9 +6,11 @@
    `coloring-draft` → `coloring-kdp` (interior.pdf 130 p + one-JPEG wrap, no
    fonts) → local Print Previewer `/kdp`. Portable binary: `init`, `--dir`,
    `REBOOK_HOME`.
-3. **Next band = RB-56…61** (book #2 on the same machine). Book plan, roster,
-   covers and listing copy live in `workspace/plans/` — **gitignored**. Never
-   commit book text or put it in ticket bodies; git gets rebook software only.
+3. **Next band = RB-62**, island endemics coloring book. Book #2 KDP upload is the
+   owner's. Research, roster, cover copy, and plates live in `workspace/` —
+   **gitignored**. Never commit book text or put it in ticket bodies. Generation
+   order: TOC and blurbs first (name, range, diet), then one animal at a time
+   (color plate, then its single coloring page). Interior cap 130 pages.
 4. **Lessons baked in:** KDP rejects brand names in keywords/description; Helvetica
    in the wrap PDF stalls the previewer; Cover slot ≠ manuscript slot; 79 pages is
    the spine-text minimum, not a cap.
