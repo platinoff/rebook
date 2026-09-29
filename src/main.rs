@@ -99,11 +99,12 @@ fn main() {
         }
         "coloring-kdp" => {
             let dir = args.get(2).cloned().unwrap_or_else(|| {
-                rust_book::paths::home()
-                    .join("build")
-                    .join("coloring-kdp")
-                    .to_string_lossy()
-                    .into_owned()
+                let out = if rust_book::paths::book_dir().is_some() {
+                    rust_book::coloring_kdp::default_dir()
+                } else {
+                    rust_book::paths::home().join("build").join("coloring-kdp")
+                };
+                out.to_string_lossy().into_owned()
             });
             match coloring_kdp(&dir) {
                 Ok(()) => {}
@@ -134,6 +135,14 @@ fn apply_global_flags(args: &[String]) -> Vec<String> {
     while i < args.len() {
         if (args[i] == "--dir" || args[i] == "-C") && i + 1 < args.len() {
             rust_book::paths::set_home_override(PathBuf::from(&args[i + 1]));
+            i += 2;
+            continue;
+        }
+        if args[i] == "--book" && i + 1 < args.len() {
+            if let Err(e) = rust_book::paths::set_book_override(PathBuf::from(&args[i + 1])) {
+                eprintln!("Error: --book: {e}");
+                std::process::exit(1);
+            }
             i += 2;
             continue;
         }
@@ -201,6 +210,8 @@ fn print_help() {
     println!("  rust_book view              http://127.0.0.1:8090/  (loopback only)");
     println!();
     println!("Global: --dir PATH  or  -C PATH  or  REBOOK_HOME  (portable data folder)");
+    println!("        --book DIR  or  REBOOK_BOOK  (local coloring book: roster.json,");
+    println!("        listing.json, art/; KDP output in DIR/build/kdp)");
     println!("Your book = book.json + chapters/*.md [+ cover.png] in that folder.");
     println!();
     println!("Commands:");

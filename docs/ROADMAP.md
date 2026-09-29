@@ -1,7 +1,9 @@
 # Rebook — roadmap (після RB-38)
 
 Тікети живуть на **GSV board**, product `rebook` (`RB-*`). Цей файл — канон
-черги. **RB-40…53 landed**. Portable binary = `init` + `--dir` / `REBOOK_HOME`.
+черги. **RB-40…56 landed**. Portable binary = `init` + `--dir` / `REBOOK_HOME`.
+Coloring book = `--book DIR` / `REBOOK_BOOK` (локальна тека: `roster.json`,
+`listing.json`, `art/`, вихід у `DIR/build/kdp`).
 
 ## Landed (RB-40…52)
 
@@ -25,15 +27,15 @@
 
 ## Наступна черга (логічний порядок для `agi`)
 
-Книжкові плани (ростер, кастоми, обкладинка, метадані) живуть **локально** у
-`workspace/plans/<book>/` (gitignored). Тут і в тікетах — тільки ПЗ.
+Книжкові плани живуть **локально** у `workspace/plans/<book>/`, а теки для
+`--book` у `workspace/books/<book>/` (усе gitignored). Тут і в тікетах — тільки ПЗ.
 
-1. **RB-56** — coloring pipeline з локальної теки книги (`--book DIR`); книжковий текст виходить з `src/` і `samples/`.
-2. **RB-57** — лінт метаданих KDP: бренди/чужі автори/«free» у keywords і описі = FAIL.
-3. **RB-58** — kit: типи транспорту з різними пропорціями (пікап / long-hood / cabover).
-4. **RB-59** — арт-бенд книги №2: identity + 4 контури, той самий білд, без значків.
-5. **RB-60** — wrap книги №2 + KDP-пакет + `/kdp`.
-6. **RB-61** — preflight і публікація книги №2.
+- ~~**RB-56**~~ landed — `--book DIR`: roster/art/listing/output з локальної теки; KDP-текст (опис, keywords, категорії, присвята) пішов з `src/coloring_kdp.rs` у `listing.json`.
+1. **RB-57** — лінт метаданих KDP: бренди/чужі автори/«free» у keywords і описі = FAIL.
+2. **RB-58** — kit: типи транспорту з різними пропорціями (пікап / long-hood / cabover); поле `kind` у ростері. Сюди ж: Studio-чернетка (`coloring_draft`) бере присвяту/іменник з `listing.json`.
+3. **RB-59** — арт-бенд книги №2: identity + 4 контури, той самий білд (`custom`), без значків.
+4. **RB-60** — wrap книги №2 + KDP-пакет + `/kdp`.
+5. **RB-61** — preflight і публікація книги №2.
 
 Пізніше: `/view3d` 8.5×11 spread proof; EPUBCheck-еквівалент v2.
 

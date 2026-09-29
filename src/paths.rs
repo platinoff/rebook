@@ -6,6 +6,58 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 static HOME_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+static BOOK_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Coloring roster file inside a book folder.
+pub const BOOK_ROSTER: &str = "roster.json";
+/// Optional KDP listing copy inside a book folder.
+pub const BOOK_LISTING: &str = "listing.json";
+
+/// `rebook --book DIR` — the local (uncommitted) coloring book folder.
+pub fn set_book_override(dir: PathBuf) -> Result<(), String> {
+    let dir = check_book_dir(&dir)?;
+    let _ = BOOK_OVERRIDE.set(dir);
+    Ok(())
+}
+
+/// Local coloring book folder from `--book` or `REBOOK_BOOK`; `None` = bundled sample.
+///
+/// Layout: `roster.json`, optional `listing.json`, `art/*.png`, output in `build/kdp`.
+pub fn book_dir() -> Option<PathBuf> {
+    if let Some(p) = BOOK_OVERRIDE.get() {
+        return Some(p.clone());
+    }
+    let raw = std::env::var("REBOOK_BOOK").ok()?;
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    check_book_dir(Path::new(raw)).ok()
+}
+
+/// Canonical book folder that holds a roster and is not a system/drive root.
+pub fn check_book_dir(dir: &Path) -> Result<PathBuf, String> {
+    let canon = dir
+        .canonicalize()
+        .map_err(|e| format!("book folder {}: {e}", dir.display()))?;
+    let canon = strip_verbatim(canon);
+    if is_unsafe_home(&canon) {
+        return Err(format!("refusing book folder {}", canon.display()));
+    }
+    if !canon.join(BOOK_ROSTER).is_file() {
+        return Err(format!("no {BOOK_ROSTER} in {}", canon.display()));
+    }
+    Ok(canon)
+}
+
+/// `\\?\S:\x` → `S:\x` so paths stay readable and PowerShell-friendly.
+fn strip_verbatim(p: PathBuf) -> PathBuf {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
+        _ => p,
+    }
+}
 
 /// `rebook --dir PATH` / `-C PATH` — must be called before the first [`home`].
 pub fn set_home_override(dir: PathBuf) {
@@ -131,5 +183,18 @@ mod tests {
         assert!(is_unsafe_home(Path::new("C:\\Windows")));
         assert!(is_unsafe_home(Path::new("C:\\Windows\\System32")));
         assert!(!is_unsafe_home(Path::new("D:\\rebook")));
+    }
+
+    #[test]
+    fn book_dir_needs_roster() {
+        let tmp = std::env::temp_dir().join(format!("rebook-book-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        assert!(check_book_dir(&tmp).is_err());
+        std::fs::write(tmp.join(BOOK_ROSTER), "{}").unwrap();
+        let ok = check_book_dir(&tmp).unwrap();
+        assert!(ok.join(BOOK_ROSTER).is_file());
+        assert!(!ok.to_string_lossy().starts_with(r"\\?\"));
+        assert!(check_book_dir(&tmp.join("..").join("missing-book")).is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

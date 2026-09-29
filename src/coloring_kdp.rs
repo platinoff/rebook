@@ -1,4 +1,4 @@
-//! KDP paperback package for Classic American Iron: interior PDF + wrap PDF.
+//! KDP paperback package for a coloring book: interior PDF + wrap PDF.
 //!
 //! KDP wants two files (RGB, no-bleed 8.5×11, premium color, 130 pages):
 //! `interior.pdf` (single pages) and `cover-wrap.pdf` (one-piece wrap, barcode
@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::coloring::{
     OUTSIDE_MARGIN_IN, Roster, interior_pages, kdp_ok, load_roster, plate_count,
@@ -22,9 +22,138 @@ use crate::pdfwriter::PdfPageBuilder;
 use crate::preflight::{b64_encode, jpeg_info};
 use crate::standards::{PAPERBACK_TRIMS, Paper, find_trim, paperback_cover, spine_width};
 
-/// Default output dir for the paperback package (`cargo run -- coloring-kdp`).
+/// Default output dir: `--book DIR/build/kdp`, else `build/coloring-kdp`.
 pub fn default_dir() -> PathBuf {
-    PathBuf::from("build/coloring-kdp")
+    match crate::paths::book_dir() {
+        Some(book) => book.join("build").join("kdp"),
+        None => PathBuf::from("build/coloring-kdp"),
+    }
+}
+
+/// KDP form copy for one book (`--book DIR/listing.json`). Book text lives in
+/// the local book folder, never in `src/`; empty fields get generic defaults.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Listing {
+    /// KDP subtitle field (defaults to roster `subtitle_en`).
+    pub subtitle: String,
+    /// Back-cover / product description.
+    pub description: String,
+    /// Up to seven KDP keywords.
+    pub keywords: Vec<String>,
+    /// Browse categories.
+    pub categories: Vec<String>,
+    /// Singular subject noun in interior copy (`car`, `truck`).
+    pub noun: String,
+    /// Plural subject noun (`cars`, `trucks`).
+    pub noun_plural: String,
+    /// Dedication page body.
+    pub dedication: String,
+    /// One-line hint of the cover art for the upload checklist.
+    pub cover_note: String,
+}
+
+/// Listing of the active book, generic defaults filled from the roster.
+pub fn load_listing(roster: &Roster) -> Result<Listing, String> {
+    let mut l = match crate::paths::book_dir() {
+        Some(dir) => {
+            let path = dir.join(crate::paths::BOOK_LISTING);
+            if path.is_file() {
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("read {}: {e}", path.display()))?;
+                serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?
+            } else {
+                Listing::default()
+            }
+        }
+        None => Listing::default(),
+    };
+    l.fill_defaults(roster);
+    Ok(l)
+}
+
+impl Listing {
+    fn fill_defaults(&mut self, roster: &Roster) {
+        if self.subtitle.trim().is_empty() {
+            self.subtitle = roster.subtitle_en.clone();
+        }
+        if self.noun.trim().is_empty() {
+            self.noun = "car".into();
+        }
+        if self.noun_plural.trim().is_empty() {
+            self.noun_plural = format!("{}s", self.noun);
+        }
+        if self.description.trim().is_empty() {
+            self.description = format!(
+                "{title} is an adult coloring book of {n} classic {np}. Each model opens with one \
+full-color identity plate, then four black contour views: three-quarter, profile, rear, and front. \
+Pencil and crayon on the contour pages; slip a sheet under markers.",
+                title = roster.title_en,
+                n = number_word(roster.cars.len()),
+                np = self.noun_plural,
+            );
+        }
+        if self.categories.is_empty() {
+            self.categories =
+                vec!["Nonfiction > Crafts, Hobbies & Home > Coloring Books for Grown-Ups".into()];
+        }
+        if self.dedication.trim().is_empty() {
+            self.dedication = format!(
+                "For everyone who still turns to look at classic {}.",
+                self.noun_plural
+            );
+        }
+        if self.cover_note.trim().is_empty() {
+            self.cover_note = "cover art, no fonts".into();
+        }
+    }
+}
+
+fn number_word(n: usize) -> String {
+    const W: [&str; 31] = [
+        "zero",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
+        "twenty",
+        "twenty-one",
+        "twenty-two",
+        "twenty-three",
+        "twenty-four",
+        "twenty-five",
+        "twenty-six",
+        "twenty-seven",
+        "twenty-eight",
+        "twenty-nine",
+        "thirty",
+    ];
+    W.get(n)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| n.to_string())
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().chain(c).collect(),
+        None => String::new(),
+    }
 }
 
 /// One Print Previewer finding (cover size, margins, missing files).
@@ -156,11 +285,11 @@ pub fn preview_meta(dir: &Path) -> PreviewMeta {
         title: roster
             .as_ref()
             .map(|r| r.title_en.clone())
-            .unwrap_or_else(|| "Classic American Iron".into()),
+            .unwrap_or_else(|| "Coloring book".into()),
         author: roster
             .as_ref()
             .map(|r| r.author.clone())
-            .unwrap_or_else(|| "Artem Platinov".into()),
+            .unwrap_or_default(),
         pages,
         trim: "8.5x11".into(),
         paper: "Premium color / white".into(),
@@ -187,7 +316,9 @@ pub fn preview_meta(dir: &Path) -> PreviewMeta {
 fn preview_plates(roster: &Roster) -> Vec<PreviewPlate> {
     let mut out = Vec::new();
     let mut n = 1u32;
-    for _ in front_pages(roster) {
+    let mut listing = Listing::default();
+    listing.fill_defaults(roster);
+    for _ in front_pages(roster, &listing) {
         out.push(PreviewPlate {
             n,
             kind: "text".into(),
@@ -361,6 +492,7 @@ pub struct KdpFiles {
 pub fn package(out_dir: &Path) -> Result<KdpFiles, String> {
     let roster = load_roster()?;
     kdp_ok(&roster)?;
+    let listing = load_listing(&roster)?;
     std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir kdp: {e}"))?;
     let jpeg_dir = out_dir.join("jpeg");
     let pages = interior_pages(&roster);
@@ -374,7 +506,7 @@ pub fn package(out_dir: &Path) -> Result<KdpFiles, String> {
     )?;
     let interior = out_dir.join("interior.pdf");
     let wrap = out_dir.join("cover-wrap.pdf");
-    write_interior(&roster, &jpeg_dir, &interior)?;
+    write_interior(&roster, &listing, &jpeg_dir, &interior)?;
     let wrap_rep = write_wrap(&roster, &jpeg_dir, &wrap)?;
     if !wrap_rep.image_placed {
         return Err("cover wrap skipped the JPEG (need 300 DPI RGB JPEG)".into());
@@ -382,12 +514,13 @@ pub fn package(out_dir: &Path) -> Result<KdpFiles, String> {
     let wrap_upload = out_dir.join(WRAP_UPLOAD_NAME);
     std::fs::copy(&wrap, &wrap_upload).map_err(|e| format!("copy wrap alias: {e}"))?;
     std::fs::copy(&wrap, out_dir.join("cover.pdf")).map_err(|e| format!("copy cover.pdf: {e}"))?;
-    let listing = out_dir.join("KDP.txt");
-    std::fs::write(&listing, listing_copy(&roster)).map_err(|e| format!("write listing: {e}"))?;
+    let listing_path = out_dir.join("KDP.txt");
+    std::fs::write(&listing_path, listing_copy(&roster, &listing))
+        .map_err(|e| format!("write listing: {e}"))?;
     Ok(KdpFiles {
         interior,
         wrap,
-        listing,
+        listing: listing_path,
     })
 }
 
@@ -437,9 +570,14 @@ fn rasterize_masters(
     Ok(())
 }
 
-fn write_interior(roster: &Roster, jpeg_dir: &Path, out: &Path) -> Result<(), String> {
+fn write_interior(
+    roster: &Roster,
+    listing: &Listing,
+    jpeg_dir: &Path,
+    out: &Path,
+) -> Result<(), String> {
     let pages = interior_pages(roster);
-    let plan = interior_plan(roster, jpeg_dir)?;
+    let plan = interior_plan(roster, listing, jpeg_dir)?;
     if plan.len() != pages as usize {
         return Err(format!("plan {} pages, roster wants {pages}", plan.len()));
     }
@@ -534,9 +672,13 @@ enum PageKind {
     Art { jpeg: PathBuf },
 }
 
-fn interior_plan(roster: &Roster, jpeg_dir: &Path) -> Result<Vec<PageKind>, String> {
+fn interior_plan(
+    roster: &Roster,
+    listing: &Listing,
+    jpeg_dir: &Path,
+) -> Result<Vec<PageKind>, String> {
     let mut out = Vec::with_capacity(interior_pages(roster) as usize);
-    for (heading, body) in front_pages(roster) {
+    for (heading, body) in front_pages(roster, listing) {
         out.push(PageKind::Text { heading, body });
     }
     for car in &roster.cars {
@@ -640,8 +782,9 @@ fn wrap_line(s: &str, max: usize) -> Vec<String> {
     lines
 }
 
-fn front_pages(roster: &Roster) -> Vec<(String, String)> {
+fn front_pages(roster: &Roster, listing: &Listing) -> Vec<(String, String)> {
     let mid = roster.cars.len() / 2;
+    let noun = &listing.noun;
     vec![
         (
             roster.title_en.clone(),
@@ -664,9 +807,11 @@ Print: Amazon KDP, paperback 8.5x11, premium color interior, no bleed."
         ),
         (
             "How to color".into(),
-            "Each car opens with one color plate -- make, model, and year, once. Then four black contour views: three-quarter, profile, rear, front. No repeated captions.\n\n\
+            format!(
+                "Each {noun} opens with one color plate -- make, model, and year, once. Then four black contour views: three-quarter, profile, rear, front. No repeated captions.\n\n\
 Pencil and crayon on the contour. Markers bleed: slip a sheet underneath.\n\n\
-Line weight is at least 0.75 pt; this edition draws at 1.25 pt.".into(),
+Line weight is at least 0.75 pt; this edition draws at 1.25 pt."
+            ),
         ),
         (
             "Contents".into(),
@@ -676,14 +821,12 @@ Line weight is at least 0.75 pt; this edition draws at 1.25 pt.".into(),
             "Contents (continued)".into(),
             toc(&roster.cars[mid..]),
         ),
+        ("Dedication".into(), listing.dedication.clone()),
         (
-            "Dedication".into(),
-            "For anyone who can name '59 fins and a '63 split-window from half a silhouette.".into(),
-        ),
-        (
-            "The cars".into(),
+            format!("The {}", listing.noun_plural),
             format!(
-                "Twenty-four classics. Each car: one color plate + four contour views. {} contour plates.",
+                "{} classics. Each {noun}: one color plate + four contour views. {} contour plates.",
+                capitalize(&number_word(roster.cars.len())),
                 plate_count(roster)
             ),
         ),
@@ -719,7 +862,35 @@ fn toc(cars: &[crate::coloring::Car]) -> String {
     s
 }
 
-fn listing_copy(roster: &Roster) -> String {
+fn indent_block(s: &str, width: usize) -> String {
+    let mut out = String::new();
+    for para in s.split("\n\n") {
+        for line in wrap_line(para, width) {
+            out.push_str("  ");
+            out.push_str(&line);
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn listing_copy(roster: &Roster, listing: &Listing) -> String {
+    let description = indent_block(&listing.description, 72);
+    let categories = listing
+        .categories
+        .iter()
+        .map(|c| format!("  {c}\n"))
+        .collect::<String>();
+    let keywords = if listing.keywords.is_empty() {
+        "  (none yet -- add \"keywords\" to listing.json in the book folder)\n".to_string()
+    } else {
+        listing
+            .keywords
+            .iter()
+            .map(|k| format!("  {k}\n"))
+            .collect::<String>()
+    };
     let pages = interior_pages(roster);
     let trim = find_trim(PAPERBACK_TRIMS, "8.5x11").expect("8.5x11");
     let cover = paperback_cover(trim, pages, Paper::PremiumColor).expect("cover math");
@@ -740,30 +911,19 @@ LANGUAGE\n\
 TITLE\n\
   {title}\n\n\
 SUBTITLE\n\
-  A Coloring Book: Make, Model, Year\n\n\
+  {subtitle}\n\n\
 AUTHOR\n\
   {author}\n\n\
 DESCRIPTION (paste)\n\
-  Classic American Iron is an adult coloring book of twenty-four legendary\n\
-  U.S. cars from the 1930s through the early 1970s. Each model opens with\n\
-  one full-color identity plate -- make, model, and year, once -- then four\n\
-  black contour views: three-quarter, profile, rear, and front. Pencil and\n\
-  crayon on the contour pages; slip a sheet under markers.\n\n\
+{description}\
 PUBLISHING RIGHTS\n\
   I own the copyright and I hold the necessary publishing rights\n\n\
 AUDIENCE\n\
   Not a children's book. Adult / teen coloring. Uncheck any \"for children\" box.\n\n\
 CATEGORIES (pick two close matches)\n\
-  Nonfiction > Crafts, Hobbies & Home > Coloring Books for Grown-Ups\n\
-  Nonfiction > Transportation > Automotive\n\n\
+{categories}\n\
 KEYWORDS (seven -- no brand names, no other authors, no free/bestseller)\n\
-  adult coloring book\n\
-  classic cars\n\
-  muscle cars\n\
-  vintage cars\n\
-  car coloring\n\
-  american automobiles\n\
-  hot rod coloring\n\n\
+{keywords}\n\
 ISBN\n\
   Get a free KDP ISBN. Do not upload your own barcode -- the wrap leaves\n\
   the lower-right of the back cover empty for Amazon's stamp.\n\n\
@@ -780,7 +940,7 @@ UPLOAD (one file at a time — wait for Processing complete)\n\
      (8.500 x 11.000 in, {pages} pages, white title page)\n\
      Wait until Print Options shows {pages} pages.\n\
   2. Cover slot: cover.pdf\n\
-     ({ww:.3} x {wh:.3} in, ONE page, garage + Cobra, no fonts)\n\
+     ({ww:.3} x {wh:.3} in, ONE page, {cover_note})\n\
      Same bytes as {wrap_name}.\n\
   If Previewer says expected {ww:.3}x{wh:.3} but submitted 8.500x11.000,\n\
   the Cover slot still has interior.pdf. Delete Cover, upload cover.pdf.\n\
@@ -793,7 +953,9 @@ AFTER UPLOAD\n\
   Premium color 8.5x11 at {pages} pages has a high print cost -- set list\n\
   price from KDP's calculated minimum.\n",
         title = roster.title_en,
+        subtitle = listing.subtitle,
         author = roster.author,
+        cover_note = listing.cover_note,
         pages = pages,
         spine = spine,
         ww = cover.w,
@@ -810,14 +972,43 @@ mod tests {
     fn interior_plan_is_130_english() {
         let r = load_roster().unwrap();
         kdp_ok(&r).unwrap();
-        assert_eq!(front_pages(&r).len(), 8);
+        let l = load_listing(&r).unwrap();
+        assert_eq!(front_pages(&r, &l).len(), 8);
         assert_eq!(back_pages(&r).len(), 2);
         let jpeg = PathBuf::from("no-jpegs");
         let n_art = r.cars.len() * 5;
         assert_eq!(n_art, 120);
-        let missing = interior_plan(&r, &jpeg);
+        let missing = interior_plan(&r, &l, &jpeg);
         assert!(missing.is_err(), "plan must require plate JPEGs");
         assert_eq!(8 + 120 + 2, interior_pages(&r));
+    }
+
+    #[test]
+    fn listing_defaults_are_generic_and_json_overrides() {
+        let r = load_roster().unwrap();
+        let mut l = Listing::default();
+        l.fill_defaults(&r);
+        assert_eq!(l.subtitle, r.subtitle_en);
+        assert_eq!((l.noun.as_str(), l.noun_plural.as_str()), ("car", "cars"));
+        assert!(l.description.contains("twenty-four classic cars"));
+        let txt = listing_copy(&r, &l);
+        assert!(txt.contains("none yet"), "no keywords baked into src");
+        let mut t: Listing = serde_json::from_str(
+            r#"{"noun":"truck","keywords":["kw one","kw two"],"description":"Desc."}"#,
+        )
+        .unwrap();
+        t.fill_defaults(&r);
+        assert_eq!(t.noun_plural, "trucks");
+        let txt = listing_copy(&r, &t);
+        assert!(txt.contains("  kw one\n  kw two\n"));
+        assert!(txt.contains("  Desc.\n"));
+        let front = front_pages(&r, &t);
+        assert!(front.iter().any(|(h, _)| h == "The trucks"));
+        assert!(
+            front
+                .iter()
+                .any(|(_, b)| b.starts_with("Twenty-four classics. Each truck"))
+        );
     }
 
     #[test]

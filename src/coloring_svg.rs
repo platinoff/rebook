@@ -419,8 +419,11 @@ fn verso_inner(car: &Car, view: View, safe: &SafeBox, lang: CaptionLang) -> Stri
     t
 }
 
-/// Master line-art PNGs for print plates (`samples/coloring/art`).
+/// Master line-art PNGs: `--book DIR/art`, else `samples/coloring/art`.
 pub fn art_dir() -> PathBuf {
+    if let Some(book) = crate::paths::book_dir() {
+        return book.join("art");
+    }
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("samples/coloring/art")
 }
 

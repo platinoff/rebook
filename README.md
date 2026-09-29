@@ -150,6 +150,7 @@ cargo run --release -- view         # preview at 127.0.0.1:8090
 | `check` | Validate the built EPUB: mimetype-first, required entries, OPF metadata, spine, nav TOC, escaped XHTML |
 | `view` | Local KDP EPUB previewer server → [http://127.0.0.1:8090/](http://127.0.0.1:8090/) |
 | `--dir` / `REBOOK_HOME` | Portable data folder (books, drafts, build). Refuses Windows system directories |
+| `--book DIR` / `REBOOK_BOOK` | Local coloring book folder: `roster.json`, optional `listing.json` (KDP subtitle, description, keywords, categories, dedication), `art/*.png`. `coloring-kdp` writes to `DIR/build/kdp`. Keep it outside git |
 | `convert` · `kdp` | Deprecated — KDP accepts a valid EPUB directly, no local AZW3/KFX step |
 
 ---

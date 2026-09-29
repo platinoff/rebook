@@ -42,6 +42,12 @@ pub struct Car {
     /// English why (write-then-translate fork).
     #[serde(default)]
     pub why_en: String,
+    /// Body kind for the kit (`car`, `pickup`, `heavy`, …); empty = car.
+    #[serde(default)]
+    pub kind: String,
+    /// Custom build shared by the identity plate and every contour view.
+    #[serde(default)]
+    pub custom: String,
 }
 
 /// KDP print knobs for this title.
@@ -90,9 +96,20 @@ pub struct Roster {
     pub cars: Vec<Car>,
 }
 
-/// Parse the embedded roster.
+/// Roster of the active book: `--book DIR/roster.json`, else the bundled sample.
 pub fn load_roster() -> Result<Roster, String> {
-    serde_json::from_str(ROSTER_JSON).map_err(|e| e.to_string())
+    match crate::paths::book_dir() {
+        Some(dir) => load_roster_from(&dir),
+        None => serde_json::from_str(ROSTER_JSON).map_err(|e| e.to_string()),
+    }
+}
+
+/// Parse `dir/roster.json` (a local book folder).
+pub fn load_roster_from(dir: &std::path::Path) -> Result<Roster, String> {
+    let path = dir.join(crate::paths::BOOK_ROSTER);
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Sum of contour views across cars (not counting color identity plates).
