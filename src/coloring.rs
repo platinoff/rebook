@@ -48,6 +48,9 @@ pub struct Car {
     /// Custom build shared by the identity plate and every contour view.
     #[serde(default)]
     pub custom: String,
+    /// Art filename stem (`quokka` → `quokka-color.png`). Empty = year-make-model.
+    #[serde(default)]
+    pub slug: String,
 }
 
 /// Body proportions the kit frames each view for.
@@ -219,9 +222,9 @@ pub fn kdp_ok(r: &Roster) -> Result<(), String> {
         return Err("front/back matter must be even so the first car opens recto".into());
     }
     for c in &r.cars {
-        if c.plates != VIEWS_PER_CAR {
+        if c.plates != 1 && c.plates != VIEWS_PER_CAR {
             return Err(format!(
-                "{} {} {}: four contour views per model, got {}",
+                "{} {} {}: one coloring page or four contour views, got {}",
                 c.year, c.make, c.model, c.plates
             ));
         }

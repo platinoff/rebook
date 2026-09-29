@@ -155,7 +155,11 @@ pub fn safe_box(side: Side, pages: u32) -> SafeBox {
 
 /// `make-model-year` slug for filenames.
 pub fn car_slug(car: &Car) -> String {
-    let raw = format!("{}-{}-{}", car.year, car.make, car.model);
+    let raw = if car.slug.trim().is_empty() {
+        format!("{}-{}-{}", car.year, car.make, car.model)
+    } else {
+        car.slug.clone()
+    };
     raw.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() {

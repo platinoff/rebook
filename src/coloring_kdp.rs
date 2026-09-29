@@ -817,9 +817,14 @@ fn wrap_line(s: &str, max: usize) -> Vec<String> {
     lines
 }
 
+fn one_plate(roster: &Roster) -> bool {
+    !roster.cars.is_empty() && roster.cars.iter().all(|c| c.plates == 1)
+}
+
 fn front_pages(roster: &Roster, listing: &Listing) -> Vec<(String, String)> {
     let mid = roster.cars.len() / 2;
     let noun = &listing.noun;
+    let one = one_plate(roster);
     vec![
         (
             roster.title_en.clone(),
@@ -830,22 +835,37 @@ fn front_pages(roster: &Roster, listing: &Listing) -> Vec<(String, String)> {
         ),
         (
             "Copyright".into(),
-            "Text and contour illustrations are original to this edition, not factory blueprints.\n\n\
+            if one {
+                "Text and illustrations are original to this edition.\n\n\
 AI helped draw the plates; the author reviewed them and is responsible for the work.\n\n\
 Print: Amazon KDP, paperback 8.5x11, premium color interior, no bleed."
-                .into(),
+            } else {
+                "Text and contour illustrations are original to this edition, not factory blueprints.\n\n\
+AI helped draw the plates; the author reviewed them and is responsible for the work.\n\n\
+Print: Amazon KDP, paperback 8.5x11, premium color interior, no bleed."
+            }
+            .into(),
         ),
         (
             "This book belongs to".into(),
-            "Name: ______________________________\n\nGarage / city: ______________________\n\nYear: __________"
-                .into(),
+            if one {
+                "Name: ______________________________\n\nCity: ______________________\n\nYear: __________"
+            } else {
+                "Name: ______________________________\n\nGarage / city: ______________________\n\nYear: __________"
+            }
+            .into(),
         ),
         (
             "How to color".into(),
             format!(
-                "Each {noun} opens with one color plate -- make, model, and year, once. Then four black contour views: three-quarter, profile, rear, front. No repeated captions.\n\n\
+                "{}\n\n\
 Pencil and crayon on the contour. Markers bleed: slip a sheet underneath.\n\n\
-Line weight is at least 0.75 pt; this edition draws at 1.25 pt."
+Line weight is at least 0.75 pt; this edition draws at 1.25 pt.",
+                if one {
+                    format!("Each {noun} opens with one color plate, then one black coloring page of that same subject.")
+                } else {
+                    format!("Each {noun} opens with one color plate -- make, model, and year, once. Then four black contour views: three-quarter, profile, rear, front. No repeated captions.")
+                }
             ),
         ),
         (
@@ -860,8 +880,13 @@ Line weight is at least 0.75 pt; this edition draws at 1.25 pt."
         (
             format!("The {}", listing.noun_plural),
             format!(
-                "{} classics. Each {noun}: one color plate + four contour views. {} contour plates.",
+                "{} subjects. Each {noun}: one color plate + {}. {} coloring pages.",
                 capitalize(&number_word(roster.cars.len())),
+                if one {
+                    "one coloring page"
+                } else {
+                    "four contour views"
+                },
                 plate_count(roster)
             ),
         ),
@@ -869,30 +894,46 @@ Line weight is at least 0.75 pt; this edition draws at 1.25 pt."
 }
 
 fn back_pages(roster: &Roster) -> Vec<(String, String)> {
-    let mut by_year: Vec<&crate::coloring::Car> = roster.cars.iter().collect();
-    by_year.sort_by_key(|c| (c.year, c.make.as_str(), c.model.as_str()));
-    let mut by_make = roster.cars.clone();
-    by_make.sort_by(|a, b| {
-        a.make
-            .cmp(&b.make)
-            .then(a.year.cmp(&b.year))
-            .then(a.model.cmp(&b.model))
-    });
-    let mut y = String::new();
-    for c in by_year {
-        y.push_str(&format!("{}  {} {}\n\n", c.year, c.make, c.model));
+    let mut by_name = roster.cars.clone();
+    by_name.sort_by(|a, b| a.make.cmp(&b.make).then(a.model.cmp(&b.model)));
+    let mut by_place = roster.cars.clone();
+    by_place.sort_by(|a, b| a.model.cmp(&b.model).then(a.make.cmp(&b.make)));
+    let mut names = String::new();
+    for c in &by_name {
+        names.push_str(&format!("{}\n\n", subject_line(c)));
     }
-    let mut m = String::new();
-    for c in &by_make {
-        m.push_str(&format!("{}  {} {}\n\n", c.make, c.year, c.model));
+    let mut places = String::new();
+    for c in &by_place {
+        places.push_str(&format!("{}\n\n", subject_line(c)));
     }
-    vec![("Index by year".into(), y), ("Index by make".into(), m)]
+    if one_plate(roster) {
+        vec![
+            ("Index by name".into(), names),
+            ("Index by place".into(), places),
+        ]
+    } else {
+        let mut by_year: Vec<&crate::coloring::Car> = roster.cars.iter().collect();
+        by_year.sort_by_key(|c| (c.year, c.make.as_str(), c.model.as_str()));
+        let mut y = String::new();
+        for c in by_year {
+            y.push_str(&format!("{}\n\n", subject_line(c)));
+        }
+        vec![("Index by year".into(), y), ("Index by make".into(), names)]
+    }
+}
+
+fn subject_line(c: &crate::coloring::Car) -> String {
+    if c.year == 0 {
+        format!("{} {}", c.make, c.model)
+    } else {
+        format!("{}  {} {}", c.year, c.make, c.model)
+    }
 }
 
 fn toc(cars: &[crate::coloring::Car]) -> String {
     let mut s = String::new();
     for c in cars {
-        s.push_str(&format!("{}  {} {}\n\n", c.year, c.make, c.model));
+        s.push_str(&format!("{}\n\n", subject_line(c)));
     }
     s
 }
