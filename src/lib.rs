@@ -8,6 +8,7 @@ pub mod ai;
 pub mod barcode;
 pub mod coloring;
 pub mod coloring_art;
+pub mod coloring_brief;
 pub mod coloring_draft;
 pub mod coloring_kdp;
 pub mod coloring_svg;

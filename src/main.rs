@@ -114,6 +114,21 @@ fn main() {
                 }
             }
         }
+        "coloring-brief" => {
+            let dir = args
+                .get(2)
+                .map(PathBuf::from)
+                .unwrap_or_else(rust_book::coloring_brief::default_dir);
+            let res = rust_book::coloring::load_roster()
+                .and_then(|r| rust_book::coloring_brief::write(&r, &dir));
+            match res {
+                Ok(n) => println!("✓ art brief: {n} masters → {}", dir.display()),
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         "coloring-lint" => match coloring_lint() {
             Ok(n) => println!("✓ KDP metadata clean ({n} keywords)"),
             Err(e) => {
@@ -234,6 +249,7 @@ fn print_help() {
     println!("  interior-pdf [TRIM]    Interior PDF for the resolved book");
     println!("  coloring-kdp [DIR]     Coloring paperback: interior.pdf + cover wrap + KDP.txt");
     println!("  coloring-lint          KDP metadata lint (brands, claims, keyword limits)");
+    println!("  coloring-brief [DIR]   Art brief: per-master view, body-kind frame, custom build");
     println!("  convert · kdp          Deprecated — upload the EPUB to KDP");
 }
 

@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use crate::coloring::{Roster, interior_pages, kdp_ok, load_roster, plate_count};
+use crate::coloring_kdp::{Listing, capitalize, number_word};
 use crate::coloring_svg::{
     CaptionLang, art_dir, art_png_name, identity_png_name, plate_file, views_for, write_plates_lang,
 };
@@ -24,17 +25,26 @@ pub const DRAFT_ID: &str = "classic-american-iron";
 pub fn seed(root: &Path) -> Result<(DraftMeta, DraftMeta), String> {
     let roster = load_roster()?;
     kdp_ok(&roster)?;
+    let listing = crate::coloring_kdp::load_listing(&roster)?;
     std::fs::create_dir_all(root).map_err(|e| format!("mkdir drafts: {e}"))?;
-    let en_id = format!("{DRAFT_ID}-en");
-    for id in [DRAFT_ID, en_id.as_str()] {
+    let draft_id = if roster.id.trim().is_empty() {
+        DRAFT_ID
+    } else {
+        roster.id.as_str()
+    };
+    let en_id = format!("{draft_id}-en");
+    for id in [draft_id, en_id.as_str()] {
         let dir = draft_dir(root, id);
         if dir.exists() {
             std::fs::remove_dir_all(&dir).map_err(|e| format!("clear {id}: {e}"))?;
         }
     }
     let created = create(root, roster.title_en.as_str(), roster.author.as_str(), "uk")?;
-    if created.id != DRAFT_ID {
-        return Err(format!("expected draft id {DRAFT_ID}, got {}", created.id));
+    if created.id != draft_id {
+        return Err(format!(
+            "draft id {} ≠ roster id {draft_id} (roster id must be the slug of title_en)",
+            created.id
+        ));
     }
     let paperback = ["paperback".to_string()];
     let mut meta = save_meta(
@@ -54,7 +64,7 @@ pub fn seed(root: &Path) -> Result<(DraftMeta, DraftMeta), String> {
     persist_meta(root, &meta)?;
     let assets = draft_dir(root, &meta.id).join("assets");
     write_plates_lang(&roster, &assets, CaptionLang::Uk)?;
-    write_chapters(root, &meta.id, &roster, CaptionLang::Uk)?;
+    write_chapters(root, &meta.id, &roster, &listing, CaptionLang::Uk)?;
     let mut en = fork_translation(root, &meta.id, "en")?;
     en.title = roster.title_en.clone();
     persist_meta(root, &en)?;
@@ -63,7 +73,7 @@ pub fn seed(root: &Path) -> Result<(DraftMeta, DraftMeta), String> {
         &draft_dir(root, &en.id).join("assets"),
         CaptionLang::En,
     )?;
-    write_chapters(root, &en.id, &roster, CaptionLang::En)?;
+    write_chapters(root, &en.id, &roster, &listing, CaptionLang::En)?;
     seed_wrap(root, &meta.id, &roster)?;
     seed_wrap(root, &en.id, &roster)?;
     Ok((
@@ -72,7 +82,7 @@ pub fn seed(root: &Path) -> Result<(DraftMeta, DraftMeta), String> {
     ))
 }
 
-/// English paperback wrap: Cobra front + matching back blurb. Type lives in the art.
+/// Paperback wrap from `art/cover-front.png` + `cover-back.png`. Type lives in the art.
 fn seed_wrap(root: &Path, id: &str, roster: &Roster) -> Result<(), String> {
     let mut doc = CoverDoc::new(
         roster.title_en.as_str(),
@@ -114,9 +124,15 @@ fn png_data_uri(bytes: &[u8]) -> String {
     )
 }
 
-fn write_chapters(root: &Path, id: &str, roster: &Roster, lang: CaptionLang) -> Result<(), String> {
+fn write_chapters(
+    root: &Path,
+    id: &str,
+    roster: &Roster,
+    listing: &Listing,
+    lang: CaptionLang,
+) -> Result<(), String> {
     let mut n = 1u32;
-    for (title, body) in front_matter(roster, lang) {
+    for (title, body) in front_matter(roster, listing, lang) {
         save_chapter(root, id, n, &title, &body, "md")?;
         n += 1;
     }
@@ -165,9 +181,20 @@ fn car_md(car: &crate::coloring::Car, lang: CaptionLang) -> String {
     md
 }
 
-fn front_matter(roster: &Roster, lang: CaptionLang) -> Vec<(String, String)> {
+/// `24 моделі`, `25 моделей`, `21 модель`.
+fn uk_models(n: usize) -> String {
+    let word = match (n % 10, n % 100) {
+        (1, r) if r != 11 => "модель",
+        (2..=4, r) if !(12..=14).contains(&r) => "моделі",
+        _ => "моделей",
+    };
+    format!("{n} {word}")
+}
+
+fn front_matter(roster: &Roster, listing: &Listing, lang: CaptionLang) -> Vec<(String, String)> {
     let cars = &roster.cars;
     let mid = cars.len() / 2;
+    let noun = &listing.noun;
     match lang {
         CaptionLang::Uk => vec![
             (
@@ -201,13 +228,14 @@ fn front_matter(roster: &Roster, lang: CaptionLang) -> Vec<(String, String)> {
             ("Зміст II".into(), toc_md(cars[mid..].iter(), CaptionLang::Uk)),
             (
                 "Присвята".into(),
-                "## Присвята\n\nТим, хто впізнає плавці '59 і split-window '63 з пів силуета.\n"
-                    .into(),
+                format!("## Присвята\n\n{}\n", listing.dedication_uk),
             ),
             (
-                "Тачки".into(),
+                listing.noun_plural_uk.clone(),
                 format!(
-                    "## Тачки\n\nДвадцять чотири класи. На модель: 1 колір + 4 контури. {} контурних плейтів.\n",
+                    "## {}\n\n{} класики. На модель: 1 колір + 4 контури. {} контурних плейтів.\n",
+                    listing.noun_plural_uk,
+                    uk_models(cars.len()),
                     plate_count(roster)
                 ),
             ),
@@ -234,11 +262,12 @@ Print: Amazon KDP, paperback 8.5×11, premium color interior, no bleed.\n"
             ),
             (
                 "How to color".into(),
-                "## How to color\n\n\
-Each car opens with one color plate — make · model · year, once. Then four black contour views: three-quarter, profile, rear, front. No repeated captions. No badge plates.\n\n\
+                format!(
+                    "## How to color\n\n\
+Each {noun} opens with one color plate — make · model · year, once. Then four black contour views: three-quarter, profile, rear, front. No repeated captions. No badge plates.\n\n\
 Pencil and crayon on the contour. Markers bleed: slip a sheet underneath.\n\n\
 Line weight ≥ 0.75 pt; this edition draws at 1.25 pt.\n"
-                    .into(),
+                ),
             ),
             (
                 "Contents I".into(),
@@ -250,13 +279,14 @@ Line weight ≥ 0.75 pt; this edition draws at 1.25 pt.\n"
             ),
             (
                 "Dedication".into(),
-                "## Dedication\n\nFor anyone who can name '59 fins and a '63 split-window from half a silhouette.\n"
-                    .into(),
+                format!("## Dedication\n\n{}\n", listing.dedication),
             ),
             (
-                "The cars".into(),
+                format!("The {}", listing.noun_plural),
                 format!(
-                    "## The cars\n\nTwenty-four classics. Each car: one color plate + four contour views. {} contour plates.\n",
+                    "## The {}\n\n{} classics. Each {noun}: one color plate + four contour views. {} contour plates.\n",
+                    listing.noun_plural,
+                    capitalize(&number_word(cars.len())),
                     plate_count(roster)
                 ),
             ),
@@ -322,6 +352,14 @@ mod tests {
     }
 
     #[test]
+    fn uk_model_plurals() {
+        assert_eq!(uk_models(21), "21 модель");
+        assert_eq!(uk_models(24), "24 моделі");
+        assert_eq!(uk_models(12), "12 моделей");
+        assert_eq!(uk_models(25), "25 моделей");
+    }
+
+    #[test]
     fn seed_uk_and_en_with_svg_includes() {
         let r = root();
         let (uk, en) = seed(&r).unwrap();
@@ -371,6 +409,13 @@ mod tests {
             en_svg.contains("MAKE") || en_svg.contains("identity") || en_svg.contains("Cadillac")
         );
         assert_eq!(en.chapters.len(), uk.chapters.len());
+        let ded = chapter_content(&r, &en.id, 7).unwrap();
+        assert!(
+            ded.contains("classic cars"),
+            "dedication from listing: {ded}"
+        );
+        let uk8 = chapter_content(&r, &uk.id, 8).unwrap();
+        assert!(uk8.contains("24 моделі класики"));
         if art_dir().join("cover-front.png").is_file() {
             let cj = crate::drafts::load_cover(&r, &en.id).expect("en wrap");
             let doc: CoverDoc = serde_json::from_str(&cj).unwrap();

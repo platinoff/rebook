@@ -50,6 +50,45 @@ pub struct Car {
     pub custom: String,
 }
 
+/// Body proportions the kit frames each view for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyKind {
+    /// Passenger car: long and low.
+    Car,
+    /// Pickup: shorter, taller cab, open bed.
+    Pickup,
+    /// Conventional tractor: long hood ahead of the cab, tall stacks.
+    LongHood,
+    /// Cab-over-engine: short, tall, flat face.
+    Cabover,
+}
+
+impl BodyKind {
+    /// Roster spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BodyKind::Car => "car",
+            BodyKind::Pickup => "pickup",
+            BodyKind::LongHood => "long-hood",
+            BodyKind::Cabover => "cabover",
+        }
+    }
+}
+
+/// Parse `car.kind` (empty = car). `heavy` is ambiguous: say long-hood or cabover.
+pub fn body_kind(car: &Car) -> Result<BodyKind, String> {
+    match car.kind.trim().to_ascii_lowercase().as_str() {
+        "" | "car" => Ok(BodyKind::Car),
+        "pickup" => Ok(BodyKind::Pickup),
+        "long-hood" | "longhood" | "conventional" => Ok(BodyKind::LongHood),
+        "cabover" | "cab-over" | "coe" => Ok(BodyKind::Cabover),
+        other => Err(format!(
+            "{} {} {}: kind \"{other}\" — use car, pickup, long-hood or cabover",
+            car.year, car.make, car.model
+        )),
+    }
+}
+
 /// KDP print knobs for this title.
 #[derive(Debug, Clone, Deserialize)]
 pub struct KdpSpec {
@@ -94,6 +133,9 @@ pub struct Roster {
     pub back_matter_pages: u32,
     /// Cars, display order.
     pub cars: Vec<Car>,
+    /// Art rule shared by every plate (same build in all views, no badges).
+    #[serde(default)]
+    pub rule: String,
 }
 
 /// Roster of the active book: `--book DIR/roster.json`, else the bundled sample.
@@ -186,6 +228,7 @@ pub fn kdp_ok(r: &Roster) -> Result<(), String> {
         if c.make.trim().is_empty() || c.model.trim().is_empty() {
             return Err("make/model required on every identity plate".into());
         }
+        body_kind(c)?;
         if c.why.trim().is_empty() || c.why_en.trim().is_empty() {
             return Err(format!(
                 "{} {} {}: need why + why_en",
@@ -223,6 +266,22 @@ mod tests {
         let sig = r.cars.iter().filter(|c| c.tier == "signature").count();
         let simple = r.cars.iter().filter(|c| c.tier == "simple").count();
         assert_eq!((hero, sig, simple), (6, 10, 8));
+    }
+
+    #[test]
+    fn body_kind_parses_and_rejects_heavy() {
+        let mut c = load_roster().unwrap().cars[0].clone();
+        assert_eq!(body_kind(&c), Ok(BodyKind::Car));
+        for (k, want) in [
+            ("pickup", BodyKind::Pickup),
+            ("Long-Hood", BodyKind::LongHood),
+            ("COE", BodyKind::Cabover),
+        ] {
+            c.kind = k.into();
+            assert_eq!(body_kind(&c), Ok(want));
+        }
+        c.kind = "heavy".into();
+        assert!(body_kind(&c).unwrap_err().contains("long-hood or cabover"));
     }
 
     #[test]

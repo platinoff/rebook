@@ -49,6 +49,10 @@ pub struct Listing {
     pub noun_plural: String,
     /// Dedication page body.
     pub dedication: String,
+    /// Ukrainian dedication (Studio source draft).
+    pub dedication_uk: String,
+    /// Ukrainian plural section title (`Тачки`, `Вантажівки`).
+    pub noun_plural_uk: String,
     /// One-line hint of the cover art for the upload checklist.
     pub cover_note: String,
     /// Extra blocked terms (other authors, series) for the metadata lint.
@@ -77,7 +81,8 @@ pub fn load_listing(roster: &Roster) -> Result<Listing, String> {
 }
 
 impl Listing {
-    fn fill_defaults(&mut self, roster: &Roster) {
+    /// Fill empty fields with generic, brand-free copy from the roster.
+    pub fn fill_defaults(&mut self, roster: &Roster) {
         if self.subtitle.trim().is_empty() {
             self.subtitle = roster.subtitle_en.clone();
         }
@@ -107,13 +112,20 @@ Pencil and crayon on the contour pages; slip a sheet under markers.",
                 self.noun_plural
             );
         }
+        if self.dedication_uk.trim().is_empty() {
+            self.dedication_uk = "Усім, хто досі обертається вслід класиці.".into();
+        }
+        if self.noun_plural_uk.trim().is_empty() {
+            self.noun_plural_uk = "Моделі".into();
+        }
         if self.cover_note.trim().is_empty() {
             self.cover_note = "cover art, no fonts".into();
         }
     }
 }
 
-fn number_word(n: usize) -> String {
+/// English number word up to thirty, digits above.
+pub fn number_word(n: usize) -> String {
     const W: [&str; 31] = [
         "zero",
         "one",
@@ -152,7 +164,8 @@ fn number_word(n: usize) -> String {
         .unwrap_or_else(|| n.to_string())
 }
 
-fn capitalize(s: &str) -> String {
+/// Uppercase the first letter.
+pub fn capitalize(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
         Some(f) => f.to_uppercase().chain(c).collect(),

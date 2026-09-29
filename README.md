@@ -151,6 +151,7 @@ cargo run --release -- view         # preview at 127.0.0.1:8090
 | `view` | Local KDP EPUB previewer server → [http://127.0.0.1:8090/](http://127.0.0.1:8090/) |
 | `--dir` / `REBOOK_HOME` | Portable data folder (books, drafts, build). Refuses Windows system directories |
 | `--book DIR` / `REBOOK_BOOK` | Local coloring book folder: `roster.json`, optional `listing.json` (KDP subtitle, description, keywords, categories, dedication), `art/*.png`. `coloring-kdp` writes to `DIR/build/kdp`. Keep it outside git |
+| `coloring-brief [DIR]` | Art brief for the masters: file, view, body kind (`car` / `pickup` / `long-hood` / `cabover` from roster `kind`), target frame on a 2400×3200 canvas, custom build. Default `DIR/build/brief` |
 | `coloring-lint` | KDP metadata lint: makes/models from the roster (plurals too), `listing.json` `deny`, "free"/bestseller/#1, max 7 keywords × 50 chars. `coloring-kdp` refuses to package while it fails |
 | `convert` · `kdp` | Deprecated — KDP accepts a valid EPUB directly, no local AZW3/KFX step |
 

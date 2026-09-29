@@ -1,4 +1,4 @@
-//! SVG plate kit for the Classic American Iron coloring paperback (RB-51).
+//! SVG plate kit for coloring paperbacks (RB-51, body kinds RB-58).
 //!
 //! Pages are **8.5×11 in at 72 pt/in** (`viewBox="0 0 612 792"`). Stroke is
 //! **1.25 pt** (above the KDP 0.75 pt graphic floor). No bleed: art lives in
@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::coloring::{Car, OUTSIDE_MARGIN_IN, Roster, interior_pages};
+use crate::coloring::{BodyKind, Car, OUTSIDE_MARGIN_IN, Roster, body_kind, interior_pages};
 use crate::standards::gutter_in;
 
 /// Points per inch (PostScript / PDF).
@@ -445,6 +445,63 @@ fn plate_index(car: &Car, view: View) -> usize {
 const CAR_W: f64 = 520.0;
 const CAR_H: f64 = 186.0;
 
+/// Subject width ÷ height for a body kind and view (the drawn vehicle, not the page).
+pub fn frame_aspect(kind: BodyKind, view: View) -> f64 {
+    match (kind, view) {
+        (BodyKind::Car, View::Profile) => 2.8,
+        (BodyKind::Car, View::ThreeQuarter) => 2.2,
+        (BodyKind::Car, _) => 1.6,
+        (BodyKind::Pickup, View::Profile) => 2.6,
+        (BodyKind::Pickup, View::ThreeQuarter) => 2.0,
+        (BodyKind::Pickup, _) => 1.3,
+        (BodyKind::LongHood, View::Profile) => 2.6,
+        (BodyKind::LongHood, View::ThreeQuarter) => 2.0,
+        (BodyKind::LongHood, _) => 0.95,
+        (BodyKind::Cabover, View::Profile) => 1.6,
+        (BodyKind::Cabover, View::ThreeQuarter) => 1.5,
+        (BodyKind::Cabover, _) => 0.85,
+    }
+}
+
+/// Where the vehicle sits inside the safe box: widest box of `frame_aspect`
+/// within 92% of the width and 72% of the art height, a touch above center.
+pub fn subject_box(safe: &SafeBox, kind: BodyKind, view: View) -> SafeBox {
+    let art_h = safe.h - 16.0;
+    let aspect = frame_aspect(kind, view);
+    let max_w = safe.w * 0.92;
+    let max_h = art_h * 0.72;
+    let (w, h) = if max_w / aspect <= max_h {
+        (max_w, max_w / aspect)
+    } else {
+        (max_h * aspect, max_h)
+    };
+    SafeBox {
+        x: safe.x + (safe.w - w) * 0.5,
+        y: safe.y + (art_h - h) * 0.48,
+        w,
+        h,
+    }
+}
+
+/// Dashed frame of the target proportions until the master PNG exists.
+fn pending_frame(b: &SafeBox, kind: BodyKind, view: View, lang: CaptionLang) -> String {
+    let note = match lang {
+        CaptionLang::Uk => "малюнок у роботі",
+        CaptionLang::En => "art pending",
+    };
+    format!(
+        r#"<rect id="frame" x="{x:.2}" y="{y:.2}" width="{w:.2}" height="{h:.2}" stroke-dasharray="6 6"/><text x="{cx:.2}" y="{cy:.2}" text-anchor="middle" font-family="Georgia,serif" font-size="14" fill="black" stroke="none">{note} · {k} · {v}</text>"#,
+        x = b.x,
+        y = b.y,
+        w = b.w,
+        h = b.h,
+        cx = b.x + b.w / 2.0,
+        cy = b.y + b.h / 2.0,
+        k = kind.as_str(),
+        v = esc(view_label(view, lang)),
+    )
+}
+
 fn recto_inner(car: &Car, view: View, safe: &SafeBox, lang: CaptionLang) -> String {
     let i = plate_index(car, view);
     let label_y = safe.y + safe.h - 8.0;
@@ -461,6 +518,13 @@ fn recto_inner(car: &Car, view: View, safe: &SafeBox, lang: CaptionLang) -> Stri
             y = safe.y,
             w = safe.w,
             h = safe.h - 16.0,
+        );
+    }
+    let kind = body_kind(car).unwrap_or(BodyKind::Car);
+    if kind != BodyKind::Car {
+        return format!(
+            "{}{label}",
+            pending_frame(&subject_box(safe, kind, view), kind, view, lang)
         );
     }
     let sx = safe.w * 0.92 / CAR_W;
@@ -561,6 +625,49 @@ mod tests {
         let contour = contour_svg(car, View::Profile, 10, pages, CaptionLang::En);
         assert!(!contour.contains("MAKE"));
         assert!(contour.contains("profile"));
+    }
+
+    #[test]
+    fn subject_box_fits_kind_proportions() {
+        let pages = 130;
+        let safe = safe_box(Side::Recto, pages);
+        let art_h = safe.h - 16.0;
+        for kind in [
+            BodyKind::Car,
+            BodyKind::Pickup,
+            BodyKind::LongHood,
+            BodyKind::Cabover,
+        ] {
+            for view in [View::ThreeQuarter, View::Profile, View::Rear, View::Front] {
+                let b = subject_box(&safe, kind, view);
+                assert!((b.w / b.h - frame_aspect(kind, view)).abs() < 1e-9);
+                assert!(b.x >= safe.x && b.x + b.w <= safe.x + safe.w + 1e-9);
+                assert!(b.y >= safe.y && b.y + b.h <= safe.y + art_h + 1e-9);
+            }
+        }
+        let rig_front = subject_box(&safe, BodyKind::Cabover, View::Front);
+        let car_front = subject_box(&safe, BodyKind::Car, View::Front);
+        assert!(rig_front.h > car_front.h * 1.5, "cabover face is tall");
+        assert!(
+            frame_aspect(BodyKind::LongHood, View::Profile)
+                > frame_aspect(BodyKind::Cabover, View::Profile)
+        );
+    }
+
+    #[test]
+    fn truck_without_master_gets_pending_frame() {
+        let r = load_roster().unwrap();
+        let mut truck = r.cars[0].clone();
+        truck.make = "Test".into();
+        truck.model = "Rig".into();
+        truck.kind = "cabover".into();
+        let svg = contour_svg(&truck, View::Front, 11, 130, CaptionLang::En);
+        assert!(svg.contains("id=\"frame\""));
+        assert!(svg.contains("art pending · cabover"));
+        assert!(
+            !svg.contains("id=\"car\""),
+            "no car fallback drawn for a truck"
+        );
     }
 
     #[test]
