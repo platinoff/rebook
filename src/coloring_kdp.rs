@@ -1083,8 +1083,125 @@ mod tests {
         assert!(
             front
                 .iter()
-                .any(|(_, b)| b.starts_with("Twenty-four classics. Each truck"))
+                .any(|(_, b)| b.starts_with("Twenty-four subjects. Each truck: one color plate + "))
         );
+    }
+
+    #[test]
+    fn one_plate_book_builds_plain_front_and_name_place_index() {
+        let subjects: Vec<(&str, &str)> = vec![
+            ("quokka", "Quokka"),
+            ("kiwi", "Kiwi"),
+            ("kakapo", "Kakapo"),
+            ("kea", "Kea"),
+            ("takahe", "Takahe"),
+            ("tuatara", "Tuatara"),
+            ("fossa", "Fossa"),
+            ("aye-aye", "Aye-aye"),
+            ("indri", "Indri"),
+        ];
+        let mut cars = Vec::new();
+        for (slug, make) in &subjects {
+            cars.push(serde_json::json!({
+                "slug": slug,
+                "make": make,
+                "model": "Island",
+                "year": 0,
+                "tier": "hero",
+                "plates": 1,
+                "kind": "car",
+                "why": "browses leaves",
+                "why_en": "browses leaves"
+            }));
+        }
+        let r: crate::coloring::Roster = serde_json::from_value(serde_json::json!({
+            "id": "island-endemics",
+            "title_uk": "Острівні оригінали",
+            "title_en": "Island Originals",
+            "subtitle_uk": "книжка-розмальовка тварин",
+            "subtitle_en": "Animals You Might Not Know",
+            "author": "A. Author",
+            "source_language": "en",
+            "kdp": {
+                "format": "paperback",
+                "trim": "8.5x11",
+                "paper": "premium",
+                "ink": "color",
+                "bleed": false,
+                "line_min_pt": 0.75,
+                "outside_margin_in": 0.25
+            },
+            "front_matter_pages": 8,
+            "back_matter_pages": 2,
+            "cars": cars
+        }))
+        .unwrap();
+        kdp_ok(&r).unwrap();
+        assert_eq!(interior_pages(&r), 28, "8 front + 9*2 cars + 2 back");
+        assert_eq!(plate_count(&r), 9);
+
+        let mut l = Listing::default();
+        l.fill_defaults(&r);
+        assert_eq!((l.noun.as_str(), l.noun_plural.as_str()), ("car", "cars"));
+        let front = front_pages(&r, &l);
+        assert_eq!(front.len(), 8);
+        let body: String = front
+            .iter()
+            .map(|(_, b)| b.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            body.contains("Each car opens with one color plate, then one black coloring page"),
+            "one-plate how-to text"
+        );
+        assert!(body.contains("City:"), "no garage slot in belongs-to");
+        assert!(!body.contains("Garage / city"));
+        assert!(
+            front.iter().any(|(_, b)| b.starts_with(
+                "Nine subjects. Each car: one color plate + one coloring page. 9 coloring pages."
+            )),
+            "one-plate roster summary"
+        );
+
+        let back = back_pages(&r);
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[0].0, "Index by name");
+        assert_eq!(back[1].0, "Index by place");
+        assert!(
+            back[0].1.contains("Kiwi Island\n\n"),
+            "name line, no bare year"
+        );
+        assert!(
+            !back.iter().any(|(_, b)| b.contains(" 0 ")),
+            "year 0 hidden"
+        );
+
+        let toc = toc(&r.cars);
+        assert!(toc.contains("Quokka Island\n\n"), "TOC line hides year 0");
+        assert!(!toc.contains("1999"), "no fictional year in TOC");
+        assert_eq!(subject_line(&r.cars[0]), "Quokka Island");
+    }
+
+    #[test]
+    fn four_view_book_keeps_garage_and_year_indexes() {
+        let r = load_roster().unwrap();
+        kdp_ok(&r).unwrap();
+        let mut l = Listing::default();
+        l.fill_defaults(&r);
+        let front = front_pages(&r, &l);
+        let body: String = front
+            .iter()
+            .map(|(_, b)| b.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            body.contains("Garage / city"),
+            "four-view keeps garage slot"
+        );
+        assert!(!body.contains("one black coloring page"));
+        let back = back_pages(&r);
+        assert_eq!(back[0].0, "Index by year");
+        assert_eq!(back[1].0, "Index by make");
     }
 
     #[test]

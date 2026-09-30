@@ -34,7 +34,12 @@ Coloring book = `--book DIR` / `REBOOK_BOOK` (локальна тека: `roster
 - ~~**RB-57**~~ landed — `kdp_lint`: марки/моделі з ростера (з множиною), `listing.json` `deny`/`allow`, «free»/bestseller/#1, ≤7 keywords ≤50 символів. `coloring-kdp` падає, `/kdp` показує, `coloring-lint` — швидка перевірка.
 - ~~**RB-58**~~ landed — `BodyKind` (`car`/`pickup`/`long-hood`/`cabover`, «heavy» = помилка) у `kdp_ok`; `frame_aspect` + `subject_box` на ракурс; без мастера нелегковий кузов отримує пунктирну рамку «art pending» замість легковика; `coloring-brief` пише `art-brief.json/.md` (2400×3200, рамка в px, custom build, `rule` з ростера) у `DIR/build/brief`; Studio-чернетка: id з `roster.id`, присвята/іменник з `listing.json` (`dedication_uk`, `noun_plural_uk`).
 1. **RB-59…61** — книга №2 (вантажівки): арт-гейт 120/120 і KDP-пакет зібрані локально. Публікацію на KDP робить власник. У git лише ПЗ.
-2. **RB-62** — книга №3, острівні ендеміки. Ресерч і ростер лише в `workspace/` (gitignored). Ліміт interior **130** сторінок. Спочатку зміст і тексти (назва, де живе, що їсть), разом із текстом обкладинки. Потім по одній тварині: кольорова плита, одразу її розмальовка. Не пакетом. Обкладинка: попереду тварина з листком, англійська назва; зад — опис і порожнє місце під штрихкод. У git і в тікети текст книги не класти.
+2. ~~**RB-62 (software)**~~ landed — one-plate roster (острівні ендеміки) будує
+   KDP-пакет без чотиривидових підписів: `one_plate` front/back matter
+   (belongs-to без «garage», «Index by name/place», TOC без року), `slug` ім'я
+   арту, `year 0` не друкується. Тести: 164 lib з регресією one-plate + four-view.
+   Арт книги — в `workspace/` (gitignored).
+3. **RB-62 (content)** — книга №3, острівні ендеміки. Ресерч і ростер лише в `workspace/` (gitignored). Ліміт interior **130** сторінок. По одній тварині: кольорова плита, одразу її розмальовка. Не пакетом. Обкладинка: попереду тварина з листком, англійська назва; зад — опис і порожнє місце під штрихкод. У git і в тікети текст книги не класти. `coloring-art-check` позначає **22 color-плат** як «line art» (<10% насиченого кольору) + 3 контури з gray shading — це арт, не ПЗ.
 
 Пізніше: `/view3d` 8.5×11 spread proof; EPUBCheck-еквівалент v2.
 

@@ -11,11 +11,15 @@
   authoring rules live in `.cursor/rules/epub-kdp-guide.mdc`.
 - **Book sources**: `chapters/` + `book.json` (sample book); coloring paperback
   roster `samples/coloring-cars.json`; build: `cargo run -- build-epub`.
-- **Latest work**: **RB-40…52 landed**. RB-52 = Studio uk draft + SVG includes
-  (`coloring-draft`, fork en). RB-51 = SVG plate kit. RB-50 = coloring canon
-  (8.5×11, 24 cars, 46 plates, 104 p). Prior: cover sniff, OPF ISBN,
-  GSV nav, write-then-translate, Studio pages, hyphenation, FOGRA39, print-art
-  DPI, view3d CSS pages, AI translate + box FS.
+- **Latest work**: **RB-40…55 landed + RB-62 software landed**. RB-62 = one-plate
+  roster (island-endemics book #3): `one_plate()` front/back, belongs-to "City:"
+  without garage, "Index by name/place", TOC hides `year 0`, `slug` art naming.
+  Regression tests: `one_plate_book_builds_plain_front_and_name_place_index` and
+  `four_view_book_keeps_garage_and_year_indexes` — 164 lib tests green. Prior:
+  RB-52 = Studio uk draft + SVG includes (`coloring-draft`, fork en); RB-51 =
+  SVG plate kit; RB-50 = coloring canon (8.5×11, 24 cars, 46 plates, 104 p);
+  cover sniff, OPF ISBN, GSV nav, write-then-translate, Studio pages, hyphenation,
+  FOGRA39, print-art DPI, view3d CSS pages, AI translate + box FS.
   Three KDP types = ebook / paperback / hardcover. Gate: fmt · clippy 0 ·
   **cargo test**.
 - **Live server**: `127.0.0.1:8090` — UI is `include_str!`-embedded, so a rebuild
