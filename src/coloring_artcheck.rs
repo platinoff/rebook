@@ -200,7 +200,10 @@ pub fn judge(s: &PixStats, is_color: bool) -> Option<String> {
 pub fn check(roster: &Roster, art: &Path) -> ArtReport {
     let mut rep = ArtReport::default();
     for car in &roster.cars {
-        let mut files = vec![(identity_png_name(car), true)];
+        let mut files = Vec::new();
+        if !roster.line_only {
+            files.push((identity_png_name(car), true));
+        }
         for (i, _) in views_for(car).into_iter().enumerate() {
             files.push((art_png_name(car, i), false));
         }

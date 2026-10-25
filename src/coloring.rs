@@ -139,6 +139,9 @@ pub struct Roster {
     /// Art rule shared by every plate (same build in all views, no badges).
     #[serde(default)]
     pub rule: String,
+    /// No color identity plates — contour / cartoon pages only (kids B&W books).
+    #[serde(default)]
+    pub line_only: bool,
 }
 
 /// Roster of the active book: `--book DIR/roster.json`, else the bundled sample.
@@ -162,9 +165,14 @@ pub fn plate_count(r: &Roster) -> u32 {
     r.cars.iter().map(|c| c.plates).sum()
 }
 
-/// Pages of car content: 1 color identity + N contour views, per car.
+/// Pages of car content: optional color identity + N contour views, per car.
 pub fn car_content_pages(r: &Roster) -> u32 {
-    r.cars.len() as u32 * COLOR_PAGES_PER_CAR + plate_count(r)
+    let color = if r.line_only {
+        0
+    } else {
+        r.cars.len() as u32 * COLOR_PAGES_PER_CAR
+    };
+    color + plate_count(r)
 }
 
 /// Interior PDF page count (even): front + identity/views + back.
@@ -198,20 +206,28 @@ pub fn kdp_ok(r: &Roster) -> Result<(), String> {
     if (r.kdp.outside_margin_in - OUTSIDE_MARGIN_IN).abs() > 1e-9 {
         return Err("outside margin must be 0.25in (no-bleed coloring)".into());
     }
-    if r.kdp.ink != "color" {
+    if r.line_only {
+        if r.kdp.ink != "black" && r.kdp.ink != "bw" {
+            return Err("line_only books use black ink (no color interior)".into());
+        }
+    } else if r.kdp.ink != "color" {
         return Err("identity plates are color — interior ink must be color".into());
     }
     let trim = find_trim(PAPERBACK_TRIMS, &r.kdp.trim)
         .ok_or_else(|| format!("unknown trim {}", r.kdp.trim))?;
     let pages = interior_pages(r);
     let paper = roster_paper(r);
-    if paper != Paper::PremiumColor {
+    if r.line_only {
+        if paper != Paper::White {
+            return Err("line_only books print on white paper with black ink".into());
+        }
+    } else if paper != Paper::PremiumColor {
         return Err("color identity plates print on premium color paper".into());
     }
     if !paperback_pages_ok(trim, pages, paper) {
         return Err(format!(
-            "{pages} pages invalid for {} / premium color (24–590)",
-            r.kdp.trim
+            "{pages} pages invalid for {} / {:?} (KDP range)",
+            r.kdp.trim, paper
         ));
     }
     if gutter_in(pages).is_none() {
@@ -222,10 +238,10 @@ pub fn kdp_ok(r: &Roster) -> Result<(), String> {
         return Err("front/back matter must be even so the first car opens recto".into());
     }
     for c in &r.cars {
-        if c.plates != 1 && c.plates != VIEWS_PER_CAR {
+        if c.plates != 1 && c.plates != 2 && c.plates != VIEWS_PER_CAR {
             return Err(format!(
-                "{} {} {}: one coloring page or four contour views, got {}",
-                c.year, c.make, c.model, c.plates
+                "{} {} {}: need 1, 2 or {} contour pages, got {}",
+                c.year, c.make, c.model, VIEWS_PER_CAR, c.plates
             ));
         }
         if c.make.trim().is_empty() || c.model.trim().is_empty() {

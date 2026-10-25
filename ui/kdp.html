@@ -23,11 +23,17 @@ html,body{margin:0;height:100%;background:var(--kdp-bg);color:#eee;font:13px/1.4
 .issue p{margin:0;color:#d0d0d0;font-size:.8em}
 .issue .ok-banner{border:1px solid #2f6f4e;background:#163027;color:#3fb950;padding:.7em;border-radius:6px}
 .kdp-main{display:flex;flex-direction:column;min-width:0}
-.stage-wrap{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:1.2em;background:#2f2f2f}
+.stage-wrap{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:1.2em 4.2em;background:#2f2f2f;position:relative}
 #stage{position:relative;display:inline-block;background:#111;box-shadow:0 8px 40px #0008}
 #stage canvas{display:block;background:#fff}
 .guides{position:absolute;inset:0;pointer-events:none}
 .guides svg{width:100%;height:100%;display:block}
+.nav-side{position:absolute;top:50%;transform:translateY(-50%);z-index:5;width:52px;height:88px;border:1px solid #555;border-radius:10px;background:#1a1a1acc;color:#eee;font-size:1.8em;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.nav-side:hover{background:#c45500;border-color:#c45500;color:#fff}
+.nav-side:disabled{opacity:.28;cursor:default;background:#1a1a1a88}
+.nav-side:disabled:hover{background:#1a1a1a88;border-color:#555;color:#eee}
+.nav-side.prev{left:10px}
+.nav-side.next{right:10px}
 .thumbs{display:flex;gap:.4em;overflow-x:auto;padding:.5em .8em;background:#252525;border-top:1px solid #111;min-height:92px}
 .thumbs canvas,.thumbs .t{height:76px;width:auto;background:#fff;cursor:pointer;border:2px solid transparent;border-radius:2px}
 .thumbs .t.on,.thumbs canvas.on{border-color:#7aa2f7}
@@ -61,7 +67,11 @@ html,body{margin:0;height:100%;background:var(--kdp-bg);color:#eee;font:13px/1.4
   </aside>
   <div class="kdp-main">
    <p class="status" id="stat">Loading package…</p>
-   <div class="stage-wrap"><div id="stage"><div class="guides" id="guides" hidden></div></div></div>
+   <div class="stage-wrap">
+    <button class="nav-side prev" id="sidePrev" type="button" title="Previous page (←)" aria-label="Previous page">‹</button>
+    <div id="stage"><div class="guides" id="guides" hidden></div></div>
+    <button class="nav-side next" id="sideNext" type="button" title="Next page (→)" aria-label="Next page">›</button>
+   </div>
    <div class="thumbs" id="thumbs"></div>
    <div class="kdp-bar">
     <button id="btnTwo" class="on" type="button">Two Page View</button>
@@ -69,10 +79,10 @@ html,body{margin:0;height:100%;background:var(--kdp-bg);color:#eee;font:13px/1.4
     <label>Page Range
      <select id="range"><option value="cover">Cover</option></select>
     </label>
-    <button id="prev" type="button">←</button>
+    <button id="prev" type="button" title="Previous page (←)">←</button>
     <input id="pageNo" type="number" min="0" value="0"/>
     <span id="pageOf">/ 0</span>
-    <button id="next" type="button">→</button>
+    <button id="next" type="button" title="Next page (→)">→</button>
     <label><input id="showGuides" type="checkbox" checked/> Guides</label>
     <button class="approve" id="approve" type="button" disabled>Approve</button>
    </div>
@@ -229,6 +239,7 @@ async function show(){
   }
   paintGuides();
   markThumb();
+  syncNav();
 }
 
 async function showJpegWrap(maxW,maxH){
@@ -350,14 +361,50 @@ $('#range').onchange=()=>{
   show();
 };
 $('#pageNo').onchange=()=>{mode='page';page=+$('#pageNo').value;show();};
-$('#prev').onclick=()=>{
-  if(mode==='cover')return;
-  page=Math.max(1,pageOf()- (two?2:1));$('#pageNo').value=page;show();
-};
-$('#next').onclick=()=>{
+
+function canPrev(){
+  if(!meta) return false;
+  if(mode==='cover') return false;
+  return pageOf() > 1;
+}
+function canNext(){
+  if(!meta) return false;
+  if(mode==='cover') return true;
+  const n=pageOf();
+  if(two){
+    const left=n%2===0?n:n-1;
+    return left+1 < meta.pages;
+  }
+  return n < meta.pages;
+}
+function goPrev(){
+  if(!canPrev()) return;
+  page=Math.max(1,pageOf()-(two?2:1));
+  $('#pageNo').value=page;
+  show();
+}
+function goNext(){
+  if(!canNext()) return;
   if(mode==='cover'){mode='page';page=1;$('#pageNo').value=1;show();return;}
-  page=Math.min(meta.pages,pageOf()+(two?2:1));$('#pageNo').value=page;show();
-};
+  page=Math.min(meta.pages,pageOf()+(two?2:1));
+  $('#pageNo').value=page;
+  show();
+}
+function syncNav(){
+  const p=$('#prev'), n=$('#next'), sp=$('#sidePrev'), sn=$('#sideNext');
+  const cp=!canPrev(), cn=!canNext();
+  p.disabled=cp; sp.disabled=cp;
+  n.disabled=cn; sn.disabled=cn;
+}
+$('#prev').onclick=goPrev;
+$('#next').onclick=goNext;
+$('#sidePrev').onclick=goPrev;
+$('#sideNext').onclick=goNext;
+document.addEventListener('keydown',e=>{
+  if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA')) return;
+  if(e.key==='ArrowLeft'){e.preventDefault();goPrev();}
+  else if(e.key==='ArrowRight'){e.preventDefault();goNext();}
+});
 $('#approve').onclick=()=>alert('Local preview only. Upload interior.pdf + cover-wrap.pdf on KDP, then Approve there.');
 boot().catch(e=>{$('#stat').textContent=String(e);});
 </script>

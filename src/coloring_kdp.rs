@@ -11,7 +11,7 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 use crate::coloring::{
-    OUTSIDE_MARGIN_IN, Roster, interior_pages, kdp_ok, load_roster, plate_count,
+    OUTSIDE_MARGIN_IN, Roster, interior_pages, kdp_ok, load_roster, plate_count, roster_paper,
 };
 use crate::coloring_svg::{
     PAGE_H, PAGE_W, art_dir, art_png_name, identity_png_name, safe_box, side_for_page, views_for,
@@ -55,6 +55,10 @@ pub struct Listing {
     pub noun_plural_uk: String,
     /// One-line hint of the cover art for the upload checklist.
     pub cover_note: String,
+    /// Spine text painted into the wrap JPEG (empty = roster title).
+    pub spine: String,
+    /// KDP cover finish line (`Glossy`, `Matte`, …). Empty = matte-or-glossy note.
+    pub cover_finish: String,
     /// Extra blocked terms (other authors, series) for the metadata lint.
     pub deny: Vec<String>,
     /// Roster words the lint may let through (generic in this book).
@@ -221,9 +225,13 @@ pub struct PreviewPlate {
 pub fn preview_meta(dir: &Path) -> PreviewMeta {
     let roster = load_roster().ok();
     let pages = roster.as_ref().map(interior_pages).unwrap_or(130);
+    let paper = roster
+        .as_ref()
+        .map(roster_paper)
+        .unwrap_or(Paper::PremiumColor);
     let trim = find_trim(PAPERBACK_TRIMS, "8.5x11").expect("8.5x11");
-    let cover = paperback_cover(trim, pages, Paper::PremiumColor).expect("cover math");
-    let spine = spine_width(pages, Paper::PremiumColor);
+    let cover = paperback_cover(trim, pages, paper).expect("cover math");
+    let spine = spine_width(pages, paper);
     let gutter = crate::standards::gutter_in(pages).unwrap_or(0.375);
     let mut issues = Vec::new();
     let interior_path = dir.join("interior.pdf");
@@ -355,12 +363,14 @@ fn preview_plates(roster: &Roster) -> Vec<PreviewPlate> {
         n += 1;
     }
     for car in &roster.cars {
-        out.push(PreviewPlate {
-            n,
-            kind: "art".into(),
-            jpeg: Some(identity_png_name(car).replace(".png", ".jpg")),
-        });
-        n += 1;
+        if !roster.line_only {
+            out.push(PreviewPlate {
+                n,
+                kind: "art".into(),
+                jpeg: Some(identity_png_name(car).replace(".png", ".jpg")),
+            });
+            n += 1;
+        }
         for (i, _) in views_for(car).into_iter().enumerate() {
             out.push(PreviewPlate {
                 n,
@@ -531,14 +541,16 @@ pub fn package(out_dir: &Path) -> Result<KdpFiles, String> {
     std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir kdp: {e}"))?;
     let jpeg_dir = out_dir.join("jpeg");
     let pages = interior_pages(&roster);
-    let spine = spine_width(pages, Paper::PremiumColor);
-    rasterize_masters(
-        &art_dir(),
-        &jpeg_dir,
-        pages,
-        spine,
-        &roster.title_en.to_ascii_uppercase(),
-    )?;
+    let paper = roster_paper(&roster);
+    let spine = spine_width(pages, paper);
+    let spine_text = if !crate::standards::spine_text_allowed(pages) {
+        String::new()
+    } else if listing.spine.trim().is_empty() {
+        roster.title_en.to_ascii_uppercase()
+    } else {
+        listing.spine.trim().to_ascii_uppercase()
+    };
+    rasterize_masters(&art_dir(), &jpeg_dir, pages, spine, &spine_text)?;
     let interior = out_dir.join("interior.pdf");
     let wrap = out_dir.join("cover-wrap.pdf");
     write_interior(&roster, &listing, &jpeg_dir, &interior)?;
@@ -646,13 +658,14 @@ fn write_wrap(roster: &Roster, jpeg_dir: &Path, out: &Path) -> Result<CoverPdfRe
         return write_flat_wrap(&flat, roster, out);
     }
     let pages = interior_pages(roster);
+    let paper_key = if roster.line_only { "white" } else { "premium" };
     let mut doc = CoverDoc::new(
         roster.title_en.as_str(),
         roster.author.as_str(),
         "pb",
         "8.5x11",
         pages,
-        "premium",
+        paper_key,
     );
     doc.title.text.clear();
     doc.author.text.clear();
@@ -677,7 +690,7 @@ fn write_flat_wrap(jpeg: &Path, roster: &Roster, out: &Path) -> Result<CoverPdfR
     }
     let pages = interior_pages(roster);
     let trim = find_trim(PAPERBACK_TRIMS, "8.5x11").expect("8.5x11");
-    let cover = paperback_cover(trim, pages, Paper::PremiumColor).expect("cover math");
+    let cover = paperback_cover(trim, pages, roster_paper(roster)).expect("cover math");
     let mut pb = PdfPageBuilder::new(cover.w * 72.0, cover.h * 72.0);
     let idx = pb.add_image(info.w, info.h, bytes);
     pb.draw_image_contain(idx, 0.0, 0.0, cover.w * 72.0, cover.h * 72.0);
@@ -717,7 +730,9 @@ fn interior_plan(
         out.push(PageKind::Text { heading, body });
     }
     for car in &roster.cars {
-        out.push(art_page(jpeg_dir, &identity_png_name(car))?);
+        if !roster.line_only {
+            out.push(art_page(jpeg_dir, &identity_png_name(car))?);
+        }
         for (i, _) in views_for(car).into_iter().enumerate() {
             out.push(art_page(jpeg_dir, &art_png_name(car, i))?);
         }
@@ -821,34 +836,39 @@ fn one_plate(roster: &Roster) -> bool {
     !roster.cars.is_empty() && roster.cars.iter().all(|c| c.plates == 1)
 }
 
+fn print_label(roster: &Roster) -> &'static str {
+    if roster.line_only {
+        "black ink / white"
+    } else {
+        "premium color"
+    }
+}
+
 fn front_pages(roster: &Roster, listing: &Listing) -> Vec<(String, String)> {
     let mid = roster.cars.len() / 2;
     let noun = &listing.noun;
     let one = one_plate(roster);
+    let line_only = roster.line_only;
+    let print = print_label(roster);
     vec![
         (
             roster.title_en.clone(),
             format!(
-                "{}\n\n{}\n\nPaperback coloring book. 8.5 x 11 in. Premium color. No bleed.",
-                roster.subtitle_en, roster.author
+                "{}\n\n{}\n\nPaperback coloring book. 8.5 x 11 in. {}. No bleed.",
+                roster.subtitle_en, roster.author, print
             ),
         ),
         (
             "Copyright".into(),
-            if one {
+            format!(
                 "Text and illustrations are original to this edition.\n\n\
 AI helped draw the plates; the author reviewed them and is responsible for the work.\n\n\
-Print: Amazon KDP, paperback 8.5x11, premium color interior, no bleed."
-            } else {
-                "Text and contour illustrations are original to this edition, not factory blueprints.\n\n\
-AI helped draw the plates; the author reviewed them and is responsible for the work.\n\n\
-Print: Amazon KDP, paperback 8.5x11, premium color interior, no bleed."
-            }
-            .into(),
+Print: Amazon KDP, paperback 8.5x11, {print} interior, no bleed."
+            ),
         ),
         (
             "This book belongs to".into(),
-            if one {
+            if one || line_only {
                 "Name: ______________________________\n\nCity: ______________________\n\nYear: __________"
             } else {
                 "Name: ______________________________\n\nGarage / city: ______________________\n\nYear: __________"
@@ -861,7 +881,14 @@ Print: Amazon KDP, paperback 8.5x11, premium color interior, no bleed."
                 "{}\n\n\
 Pencil and crayon on the contour. Markers bleed: slip a sheet underneath.\n\n\
 Line weight is at least 0.75 pt; this edition draws at 1.25 pt.",
-                if one {
+                if line_only {
+                    let n = roster.cars.first().map(|c| c.plates).unwrap_or(1);
+                    if n <= 1 {
+                        format!("Each {noun} has one cartoon coloring page. Read the breed note in the contents, then color!")
+                    } else {
+                        format!("Each {noun} has {n} cartoon coloring pages (different poses). Read the breed note in the contents, then color!")
+                    }
+                } else if one {
                     format!("Each {noun} opens with one color plate, then one black coloring page of that same subject.")
                 } else {
                     format!("Each {noun} opens with one color plate -- make, model, and year, once. Then four black contour views: three-quarter, profile, rear, front. No repeated captions.")
@@ -879,16 +906,24 @@ Line weight is at least 0.75 pt; this edition draws at 1.25 pt.",
         ("Dedication".into(), listing.dedication.clone()),
         (
             format!("The {}", listing.noun_plural),
-            format!(
-                "{} subjects. Each {noun}: one color plate + {}. {} coloring pages.",
-                capitalize(&number_word(roster.cars.len())),
-                if one {
-                    "one coloring page"
-                } else {
-                    "four contour views"
-                },
-                plate_count(roster)
-            ),
+            if line_only {
+                format!(
+                    "{} subjects. Each {noun}: cartoon coloring page(s). {} pages to color.",
+                    capitalize(&number_word(roster.cars.len())),
+                    plate_count(roster)
+                )
+            } else {
+                format!(
+                    "{} subjects. Each {noun}: one color plate + {}. {} coloring pages.",
+                    capitalize(&number_word(roster.cars.len())),
+                    if one {
+                        "one coloring page"
+                    } else {
+                        "four contour views"
+                    },
+                    plate_count(roster)
+                )
+            },
         ),
     ]
 }
@@ -933,7 +968,13 @@ fn subject_line(c: &crate::coloring::Car) -> String {
 fn toc(cars: &[crate::coloring::Car]) -> String {
     let mut s = String::new();
     for c in cars {
-        s.push_str(&format!("{}\n\n", subject_line(c)));
+        s.push_str(&subject_line(c));
+        // One-plate books (year 0): place is in `model`, short blurb in why_en.
+        if c.year == 0 && !c.why_en.trim().is_empty() {
+            s.push('\n');
+            s.push_str(c.why_en.trim());
+        }
+        s.push_str("\n\n");
     }
     s
 }
@@ -968,9 +1009,56 @@ fn listing_copy(roster: &Roster, listing: &Listing) -> String {
             .collect::<String>()
     };
     let pages = interior_pages(roster);
+    let paper = roster_paper(roster);
     let trim = find_trim(PAPERBACK_TRIMS, "8.5x11").expect("8.5x11");
-    let cover = paperback_cover(trim, pages, Paper::PremiumColor).expect("cover math");
-    let spine = spine_width(pages, Paper::PremiumColor);
+    let cover = paperback_cover(trim, pages, paper).expect("cover math");
+    let spine = spine_width(pages, paper);
+    let finish = if listing.cover_finish.trim().is_empty() {
+        "Matte (recommended) or glossy"
+    } else {
+        listing.cover_finish.trim()
+    };
+    let ink_paper = if roster.line_only {
+        "Black & white / white"
+    } else {
+        "Premium color / white"
+    };
+    let paper_note = if roster.line_only {
+        "Black ink 8.5x11 allows 24-828"
+    } else {
+        "Premium color 8.5x11 allows 24-590"
+    };
+    // Amazon.com large trim: premium color $1+$0.08/p (42+); black 24-110 fixed $2.84.
+    let (print_us, print_formula) = if roster.line_only {
+        if pages <= 110 {
+            (2.84_f64, format!("fixed ${:.2} for 24-110p large black ink", 2.84))
+        } else {
+            let p = 1.00 + pages as f64 * 0.017;
+            (p, format!("$1.00 + {pages} x $0.017"))
+        }
+    } else {
+        let p = 1.00 + pages as f64 * 0.08;
+        (p, format!("$1.00 + {pages} x $0.08"))
+    };
+    let min60 = print_us / 0.60;
+    let suggest = if roster.line_only {
+        // Kids B&W: a few dollars above minimum, under $20 like prior titles.
+        ((min60 + 6.0).max(9.99)).floor() + 0.99
+    } else {
+        ((min60 + 4.50).max(16.99)).floor() + 0.99
+    };
+    let audience = if roster.line_only {
+        "Ages 4+ / kids and pet lovers. You may check the children's box if the listing matches."
+    } else {
+        "Not a children's book. Adult / teen coloring. Uncheck any \"for children\" box."
+    };
+    let after = if roster.line_only {
+        "contour pages are black line on white. Order a proof copy before Publish."
+    } else {
+        "color plates are color; contour plates are black line on white. Order a proof copy before Publish.\n  \
+Premium color 8.5x11 at this page count has a high print cost -- set list\n  \
+price from KDP's calculated minimum."
+    };
     format!(
         "KDP paperback upload -- {title}\n\
 ================================\n\n\
@@ -978,7 +1066,7 @@ Create a NEW paperback (not ebook, not hardcover).\n\n\
 79 PAGES IS NOT A MAXIMUM\n\
   The cover screen note (\"at least 79 pages\" / Cover Creator spine text)\n\
   is the MINIMUM page count before Amazon will print text on the spine.\n\
-  This interior is {pages} pages. Premium color 8.5x11 allows 24-590.\n\
+  This interior is {pages} pages. {paper_note}.\n\
   Do not cut pages. Do not use Cover Creator.\n\
   If Print Previewer is blocked: wait until KDP shows {pages} pages under\n\
   Print Options, then upload cover-wrap.pdf as \"Print-ready PDF cover\".\n\n\
@@ -995,7 +1083,7 @@ DESCRIPTION (paste)\n\
 PUBLISHING RIGHTS\n\
   I own the copyright and I hold the necessary publishing rights\n\n\
 AUDIENCE\n\
-  Not a children's book. Adult / teen coloring. Uncheck any \"for children\" box.\n\n\
+  {audience}\n\n\
 CATEGORIES (pick two close matches)\n\
 {categories}\n\
 KEYWORDS (seven -- no brand names, no other authors, no free/bestseller)\n\
@@ -1004,13 +1092,21 @@ ISBN\n\
   Get a free KDP ISBN. Do not upload your own barcode -- the wrap leaves\n\
   the lower-right of the back cover empty for Amazon's stamp.\n\n\
 PRINT OPTIONS\n\
-  Ink and paper: Premium color / white\n\
+  Ink and paper: {ink_paper}\n\
   Trim: 8.5 x 11 in (21.59 x 27.94 cm)\n\
   Bleed: No bleed\n\
-  Cover finish: Matte (recommended) or glossy\n\
+  Cover finish: {finish}\n\
   Page count KDP will read from the PDF: {pages} (even)\n\
   Spine (our math): {spine:.4} in\n\
   Wrap file size (our math): {ww:.4} x {wh:.4} in\n\n\
+PRICING (Amazon.com estimate — confirm in KDP Rights & Pricing)\n\
+  Marketplace: Amazon.com (large trim = 8.5x11)\n\
+  Print cost: ${print_us:.2}  ({print_formula})\n\
+  Cover finish does NOT change print cost.\n\
+  Minimum list at 60% royalty: ${min60:.2}\n\
+  Suggested list: ${suggest:.2}\n\
+  At ${suggest:.2} / 60%: royalty ~ ${royalty:.2} per sale\n\
+  Fun list under $20 (like prior title): $18.81 also works if royalty stays positive.\n\n\
 UPLOAD (one file at a time — wait for Processing complete)\n\
   1. Manuscript slot: interior.pdf\n\
      (8.500 x 11.000 in, {pages} pages, white title page)\n\
@@ -1024,10 +1120,7 @@ UPLOAD (one file at a time — wait for Processing complete)\n\
   manuscript first, wait, then cover.pdf only.\n\n\
 AFTER UPLOAD\n\
   Open KDP Print Preview. Check: barcode sits in the empty back corner;\n\
-  spine text is readable; no art in the gutter; color plates are color;\n\
-  contour plates are black line on white. Order a proof copy before Publish.\n\
-  Premium color 8.5x11 at {pages} pages has a high print cost -- set list\n\
-  price from KDP's calculated minimum.\n",
+  spine text is readable; no art in the gutter; {after}\n",
         title = roster.title_en,
         subtitle = listing.subtitle,
         author = roster.author,
@@ -1037,6 +1130,16 @@ AFTER UPLOAD\n\
         ww = cover.w,
         wh = cover.h,
         wrap_name = WRAP_UPLOAD_NAME,
+        finish = finish,
+        print_us = print_us,
+        print_formula = print_formula,
+        min60 = min60,
+        suggest = suggest,
+        royalty = suggest * 0.60 - print_us,
+        ink_paper = ink_paper,
+        paper_note = paper_note,
+        audience = audience,
+        after = after,
     )
 }
 
@@ -1177,7 +1280,10 @@ mod tests {
         );
 
         let toc = toc(&r.cars);
-        assert!(toc.contains("Quokka Island\n\n"), "TOC line hides year 0");
+        assert!(
+            toc.contains("Quokka Island\nbrowses leaves\n\n"),
+            "TOC line hides year 0 and keeps the place blurb"
+        );
         assert!(!toc.contains("1999"), "no fictional year in TOC");
         assert_eq!(subject_line(&r.cars[0]), "Quokka Island");
     }
