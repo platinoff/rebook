@@ -7,19 +7,21 @@
   [`PRODUCTION_GUIDE.md`](../PRODUCTION_GUIDE.md) ·
   [`CONCEPT.md`](./CONCEPT.md) · [`ROADMAP.md`](./ROADMAP.md) ·
   [`VULKAN_RESEARCH.md`](./VULKAN_RESEARCH.md) ·
-  [`COLORING_CARS.md`](./COLORING_CARS.md);
-  authoring rules live in `.cursor/rules/epub-kdp-guide.mdc`.
+  [`COLORING_CARS.md`](./COLORING_CARS.md) ·
+  [`COLORING_PRODUCT_BAR.md`](./COLORING_PRODUCT_BAR.md);
+  authoring rules live in `.cursor/rules/epub-kdp-guide.mdc` and
+  `.cursor/rules/coloring-product-bar.mdc`.
 - **Book sources**: `chapters/` + `book.json` (sample book); coloring paperback
-  roster `samples/coloring-cars.json`; build: `cargo run -- build-epub`.
-- **Latest work**: **RB-40…55 landed + RB-62 software landed**. RB-62 = one-plate
-  roster (island-endemics book #3): `one_plate()` front/back, belongs-to "City:"
-  without garage, "Index by name/place", TOC hides `year 0`, `slug` art naming.
-  Regression tests: `one_plate_book_builds_plain_front_and_name_place_index` and
-  `four_view_book_keeps_garage_and_year_indexes` — 164 lib tests green. Prior:
-  RB-52 = Studio uk draft + SVG includes (`coloring-draft`, fork en); RB-51 =
-  SVG plate kit; RB-50 = coloring canon (8.5×11, 24 cars, 46 plates, 104 p);
-  cover sniff, OPF ISBN, GSV nav, write-then-translate, Studio pages, hyphenation,
-  FOGRA39, print-art DPI, view3d CSS pages, AI translate + box FS.
+  roster `samples/coloring-cars.json`; live author titles under `workspace/`
+  (gitignored). Build: `cargo run -- build-epub` / `--book DIR coloring-kdp`.
+- **Product bar (every new coloring / KDP paperback):** minimum **70** interior
+  pages (prefer **~90**); same art/cover/copy quality as shipped titles; only
+  **content presentation** changes per book. Details:
+  [`COLORING_PRODUCT_BAR.md`](./COLORING_PRODUCT_BAR.md).
+- **Latest work**: coloring pipeline supports `line_only`, `plates` 1/2/4,
+  local `/kdp` Print Previewer with side page nav (UI is `include_str!` — rebuild
+  + restart after UI edits). RB-40…55 + RB-62 software landed (one-plate front/
+  back, name/place index). Author books stay local — never commit `workspace/`.
   Three KDP types = ebook / paperback / hardcover. Gate: fmt · clippy 0 ·
   **cargo test**.
 - **Live server**: `127.0.0.1:8090` — UI is `include_str!`-embedded, so a rebuild

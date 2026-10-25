@@ -3,6 +3,10 @@
 Working title (uk, write-first): **Класичні американські тачки**.
 KDP listing (en fork): **Classic American Iron**.
 
+> **Product bar for all new titles** (not only this cars book): minimum **70**
+> pages (prefer ~90), same quality; presentation differs.
+> See [`COLORING_PRODUCT_BAR.md`](./COLORING_PRODUCT_BAR.md).
+
 This is a **paperback coloring book**, not a prose EPUB. eBook is optional later;
 the sellable object is a **B&W interior + color wrap** on Amazon KDP.
 

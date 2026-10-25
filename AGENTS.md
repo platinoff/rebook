@@ -6,4 +6,4 @@ Open `S:/rust/GSV/gsv.code-workspace` (GSV first) so hub MCP, tickets, bands, an
 
 When a multi-agent workflow pattern is more relevant in PoolAI than here, copy the **idea** from `S:/rust/poolAI` — not PoolAI product files.
 
-Local canon: [`docs/HANDOFF_NEW_SESSION.md`](docs/HANDOFF_NEW_SESSION.md) · `.cursor/rules/epub-kdp-guide.mdc`. Tests: `cargo fmt -- --check` → `cargo clippy --all-targets` → `cargo test`. Let `rust-toolchain.toml` win (`unset RUSTUP_TOOLCHAIN`).
+Local canon: [`docs/HANDOFF_NEW_SESSION.md`](docs/HANDOFF_NEW_SESSION.md) · [`docs/COLORING_PRODUCT_BAR.md`](docs/COLORING_PRODUCT_BAR.md) · `.cursor/rules/epub-kdp-guide.mdc` · `.cursor/rules/coloring-product-bar.mdc`. New coloring/KDP paperbacks: **≥70 pages** (prefer ~90), same quality bar; only content presentation changes; `workspace/` stays local. Tests: `cargo fmt -- --check` → `cargo clippy --all-targets` → `cargo test`. Let `rust-toolchain.toml` win (`unset RUSTUP_TOOLCHAIN`).

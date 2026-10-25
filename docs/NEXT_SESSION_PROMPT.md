@@ -2,27 +2,25 @@
 
 1. **Owner product pick: rebook.** Window `S:/rust/rebook`. `agi` = keep-live +
    GSV tickets (product `rebook`), take the next open RB in order.
-2. **State: RB-40…55 landed + RB-62 software landed.** Coloring paperback #1 is
-   live on KDP. Pipeline: `coloring-draft` → `coloring-kdp` (interior.pdf up to
-   130 p + one-JPEG wrap, no fonts) → local Print Previewer `/kdp`. One-plate
-   roster support (`one_plate` front/back, `slug`, `year 0` hidden) has regressions
-   in `coloring_kdp` tests. Portable binary: `init`, `--dir`, `REBOOK_HOME`.
-3. **Next band = RB-62 (content)**, island endemics coloring book. Software half
-   landed (one-plate KDP package green); **art-gate residual to owner**:
-   `coloring-art-check` flags 22 `-color.png` identity plates as line art
-   (<10% saturated) + 3 contour gray-shading hits — regen art in `workspace/`,
-   never weaken the gate. Book #2 KDP upload is the owner's. Research, roster,
-   cover copy, and plates live in `workspace/` — **gitignored**. Never commit book
-   text or put it in ticket bodies. Generation order: TOC and blurbs first (name,
-   range, diet), then one animal at a time (color plate, then its single coloring
-   page). Interior cap 130 pages.
-4. **Lessons baked in:** KDP rejects brand names in keywords/description; Helvetica
-   in the wrap PDF stalls the previewer; Cover slot ≠ manuscript slot; 79 pages is
-   the spine-text minimum, not a cap.
-5. App = portable web on **127.0.0.1:8090** (`cargo run -- view`). UI is
-   `include_str!`, restart after code change.
-6. Keep green: `cargo fmt -- --check` → `cargo clippy --all-targets` →
-   `cargo test`.
+2. **Product bar (mandatory for any new coloring / KDP paperback):** ≥ **70**
+   interior pages (prefer **~90**); same quality as shipped titles; only content
+   presentation differs. Canon:
+   [`COLORING_PRODUCT_BAR.md`](./COLORING_PRODUCT_BAR.md) ·
+   `.cursor/rules/coloring-product-bar.mdc`.
+3. **State:** coloring pipeline = `line_only` + plates 1/2/4 → `coloring-kdp` →
+   `/kdp` previewer (side ‹› + arrow keys; UI embedded — rebuild+restart).
+   RB-40…55 + RB-62 software landed. Portable binary: `init`, `--dir`,
+   `REBOOK_HOME`.
+4. **Author content** lives in `workspace/` — **gitignored**. Never commit book
+   text/art/PDFs or put them in ticket bodies. Push tool + docs only.
+5. **Lessons baked in:** KDP rejects brand names in keywords/description;
+   Helvetica in the wrap PDF stalls the previewer; Cover slot ≠ manuscript;
+   79 pages = spine-text **minimum**, not a cap; shared `assets/cover-*.png`
+   collide across books — keep covers in `art/` or book-prefixed names; sync
+   must not wipe painted covers.
+6. App = portable web on **127.0.0.1:8090**. Keep green: `cargo fmt -- --check`
+   → `cargo clippy --all-targets` → `cargo test`.
 
 Sources: [`HANDOFF_NEW_SESSION.md`](./HANDOFF_NEW_SESSION.md) ·
+[`COLORING_PRODUCT_BAR.md`](./COLORING_PRODUCT_BAR.md) ·
 [`ROADMAP.md`](./ROADMAP.md) · [`CONCEPT.md`](./CONCEPT.md).

@@ -1,0 +1,19 @@
+---
+description: Product bar for every new KDP coloring / paperback title in rebook
+alwaysApply: true
+---
+
+# Coloring / KDP paperback product bar
+
+When the owner asks for a new coloring book or similar KDP paperback:
+
+1. **Minimum 70 interior pages** (even). Prefer **~90** when the roster allows
+   (more subjects or 2 poses / color+line). Do not ship thin books that only
+   meet KDP’s 24-page printer floor.
+2. **Same quality bar every time** — detailed clean line art (binarize /
+   art-check), solid cover (title, back blurb, barcode pocket; spine text only
+   if pages > 79), correct origin blurbs, one-word KDP keywords. What varies is
+   **content presentation** (theme, line_only vs color, poses), not quality or
+   the page floor.
+3. Author content stays in `workspace/` (gitignored). Commit/push **tool + docs**
+   only. Full canon: [`docs/COLORING_PRODUCT_BAR.md`](../../docs/COLORING_PRODUCT_BAR.md).
