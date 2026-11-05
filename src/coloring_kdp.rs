@@ -1031,7 +1031,10 @@ fn listing_copy(roster: &Roster, listing: &Listing) -> String {
     // Amazon.com large trim: premium color $1+$0.08/p (42+); black 24-110 fixed $2.84.
     let (print_us, print_formula) = if roster.line_only {
         if pages <= 110 {
-            (2.84_f64, format!("fixed ${:.2} for 24-110p large black ink", 2.84))
+            (
+                2.84_f64,
+                format!("fixed ${:.2} for 24-110p large black ink", 2.84),
+            )
         } else {
             let p = 1.00 + pages as f64 * 0.017;
             (p, format!("$1.00 + {pages} x $0.017"))
