@@ -6,7 +6,6 @@
 //! writer skips PNG.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
@@ -63,6 +62,10 @@ pub struct Listing {
     pub deny: Vec<String>,
     /// Roster words the lint may let through (generic in this book).
     pub allow: Vec<String>,
+    /// Replaces the stock "cartoon / breed" how-to line when set.
+    pub how_to: String,
+    /// Replaces the stock section-page line when set.
+    pub section_note: String,
 }
 
 /// Listing of the active book, generic defaults filled from the roster.
@@ -219,6 +222,8 @@ pub struct PreviewPlate {
     pub n: u32,
     pub kind: String,
     pub jpeg: Option<String>,
+    /// JPEG is on disk. Text pages are always ready. Missing art is not.
+    pub ready: bool,
 }
 
 /// Inspect `dir/interior.pdf` + `dir/cover-wrap.pdf` the way KDP sizes a wrap.
@@ -286,7 +291,10 @@ pub fn preview_meta(dir: &Path) -> PreviewMeta {
             });
         }
     }
-    let plates = roster.as_ref().map(preview_plates).unwrap_or_default();
+    let plates = roster
+        .as_ref()
+        .map(|r| preview_plates(r, &dir.join("jpeg")))
+        .unwrap_or_default();
     if let Some((w, h, n)) = wrap {
         if n != 1 {
             issues.push(PreviewIssue {
@@ -328,7 +336,11 @@ pub fn preview_meta(dir: &Path) -> PreviewMeta {
             .unwrap_or_default(),
         pages,
         trim: "8.5x11".into(),
-        paper: "Premium color / white".into(),
+        paper: if roster.as_ref().is_some_and(|r| r.line_only) {
+            "Black & white / white".into()
+        } else {
+            "Premium color / white".into()
+        },
         expected_wrap_w: cover.w,
         expected_wrap_h: cover.h,
         spine_in: spine,
@@ -349,43 +361,44 @@ pub fn preview_meta(dir: &Path) -> PreviewMeta {
     }
 }
 
-fn preview_plates(roster: &Roster) -> Vec<PreviewPlate> {
+fn preview_plates(roster: &Roster, jpeg_dir: &Path) -> Vec<PreviewPlate> {
     let mut out = Vec::new();
     let mut n = 1u32;
     let mut listing = Listing::default();
     listing.fill_defaults(roster);
-    for _ in front_pages(roster, &listing) {
+    let push_text = |out: &mut Vec<PreviewPlate>, n: u32| {
         out.push(PreviewPlate {
             n,
             kind: "text".into(),
             jpeg: None,
+            ready: true,
         });
+    };
+    let push_art = |out: &mut Vec<PreviewPlate>, n: u32, jpeg: String| {
+        let ready = jpeg_dir.join(&jpeg).is_file();
+        out.push(PreviewPlate {
+            n,
+            kind: "art".into(),
+            jpeg: Some(jpeg),
+            ready,
+        });
+    };
+    for _ in front_pages(roster, &listing) {
+        push_text(&mut out, n);
         n += 1;
     }
     for car in &roster.cars {
         if !roster.line_only {
-            out.push(PreviewPlate {
-                n,
-                kind: "art".into(),
-                jpeg: Some(identity_png_name(car).replace(".png", ".jpg")),
-            });
+            push_art(&mut out, n, identity_png_name(car).replace(".png", ".jpg"));
             n += 1;
         }
         for (i, _) in views_for(car).into_iter().enumerate() {
-            out.push(PreviewPlate {
-                n,
-                kind: "art".into(),
-                jpeg: Some(art_png_name(car, i).replace(".png", ".jpg")),
-            });
+            push_art(&mut out, n, art_png_name(car, i).replace(".png", ".jpg"));
             n += 1;
         }
     }
     for _ in back_pages(roster) {
-        out.push(PreviewPlate {
-            n,
-            kind: "text".into(),
-            jpeg: None,
-        });
+        push_text(&mut out, n);
         n += 1;
     }
     out
@@ -550,7 +563,7 @@ pub fn package(out_dir: &Path) -> Result<KdpFiles, String> {
     } else {
         listing.spine.trim().to_ascii_uppercase()
     };
-    rasterize_masters(&art_dir(), &jpeg_dir, pages, spine, &spine_text)?;
+    rasterize_masters(&art_dir(), &jpeg_dir, spine, &spine_text)?;
     let interior = out_dir.join("interior.pdf");
     let wrap = out_dir.join("cover-wrap.pdf");
     write_interior(&roster, &listing, &jpeg_dir, &interior)?;
@@ -574,41 +587,13 @@ pub fn package(out_dir: &Path) -> Result<KdpFiles, String> {
 fn rasterize_masters(
     art: &Path,
     jpeg_dir: &Path,
-    pages: u32,
     spine: f64,
     spine_text: &str,
 ) -> Result<(), String> {
     if !art.is_dir() {
         return Err(format!("art masters missing: {}", art.display()));
     }
-    std::fs::create_dir_all(jpeg_dir).map_err(|e| format!("mkdir jpeg: {e}"))?;
-    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/coloring-png-to-jpeg.ps1");
-    if !script.is_file() {
-        return Err(format!("missing {}", script.display()));
-    }
-    let st = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            &script.to_string_lossy(),
-            "-ArtDir",
-            &art.to_string_lossy(),
-            "-OutDir",
-            &jpeg_dir.to_string_lossy(),
-            "-Pages",
-            &pages.to_string(),
-            "-SpineIn",
-            &format!("{spine:.6}"),
-            "-SpineText",
-            spine_text,
-        ])
-        .status()
-        .map_err(|e| format!("powershell: {e}"))?;
-    if !st.success() {
-        return Err(format!("png→jpeg failed (status {st})"));
-    }
+    crate::coloring_raster::rasterize(art, jpeg_dir, spine, spine_text)?;
     for name in ["cover-front.jpg", "cover-back.jpg", "cover-wrap.jpg"] {
         if !jpeg_dir.join(name).is_file() {
             return Err(format!("missing {name} after rasterize"));
@@ -641,6 +626,7 @@ fn write_interior(
             PageKind::Art { jpeg } => {
                 paint_art(&mut pb, page_no, pages, jpeg)?;
             }
+            PageKind::Blank => {}
         }
         paint_folio(&mut pb, page_no);
     }
@@ -716,8 +702,16 @@ fn jpeg_uri(path: &Path) -> Result<String, String> {
 }
 
 enum PageKind {
-    Text { heading: String, body: String },
-    Art { jpeg: PathBuf },
+    Text {
+        heading: String,
+        body: String,
+    },
+    Art {
+        jpeg: PathBuf,
+    },
+    /// Second pose not drawn yet. Still counts as a page so the PDF and the
+    /// contents stay in the same places as the finished book.
+    Blank,
 }
 
 fn interior_plan(
@@ -746,7 +740,7 @@ fn interior_plan(
 fn art_page(jpeg_dir: &Path, png_name: &str) -> Result<PageKind, String> {
     let jpg = jpeg_dir.join(png_name.replace(".png", ".jpg"));
     if !jpg.is_file() {
-        return Err(format!("missing plate JPEG {}", jpg.display()));
+        return Ok(PageKind::Blank);
     }
     Ok(PageKind::Art { jpeg: jpg })
 }
@@ -770,19 +764,57 @@ fn paint_text(pb: &mut PdfPageBuilder, page: u32, pages: u32, heading: &str, bod
     let mut y = PAGE_H - safe.y - 36.0;
     let heading = latin1(heading);
     pb.text(safe.x, y, 22.0, &heading);
-    y -= 36.0;
+    y -= 32.0;
     pb.set_fill(0.12, 0.12, 0.12);
-    let max_chars = ((safe.w / 7.2) as usize).clamp(28, 92);
-    for para in body.split("\n\n") {
-        for line in wrap_line(&latin1(para), max_chars) {
-            if y < safe.y + 28.0 {
-                break;
-            }
-            pb.text(safe.x, y, 12.0, &line);
-            y -= 18.0;
+    let bottom = safe.y + 28.0;
+    let avail = (y - bottom).max(80.0);
+    // Contents carry the when/where line. Shrink only when the stock 12/18
+    // leading would clip, so a short page stays the same size.
+    let mut size = 12.0_f64;
+    let mut lead = 18.0_f64;
+    let mut gap = 8.0_f64;
+    let mut max_chars = ((safe.w / (size * 0.55)) as usize).clamp(28, 110);
+    let mut lines = layout_body(body, max_chars);
+    for _ in 0..6 {
+        let height = body_height(&lines, lead, gap);
+        if height <= avail || size <= 8.5 {
+            break;
         }
-        y -= 10.0;
+        size -= 0.5;
+        lead = (size * 1.35).max(10.5);
+        gap = (size * 0.55).max(4.0);
+        max_chars = ((safe.w / (size * 0.52)) as usize).clamp(28, 120);
+        lines = layout_body(body, max_chars);
     }
+    for line in lines {
+        if y < bottom {
+            break;
+        }
+        if line.is_empty() {
+            y -= gap;
+            continue;
+        }
+        pb.text(safe.x, y, size, &line);
+        y -= lead;
+    }
+}
+
+fn layout_body(body: &str, max_chars: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for para in body.split("\n\n") {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.extend(wrap_line(&latin1(para), max_chars));
+    }
+    lines
+}
+
+fn body_height(lines: &[String], lead: f64, gap: f64) -> f64 {
+    lines
+        .iter()
+        .map(|line| if line.is_empty() { gap } else { lead })
+        .sum()
 }
 
 fn paint_art(pb: &mut PdfPageBuilder, page: u32, pages: u32, jpeg: &Path) -> Result<(), String> {
@@ -882,11 +914,15 @@ Print: Amazon KDP, paperback 8.5x11, {print} interior, no bleed."
 Pencil and crayon on the contour. Markers bleed: slip a sheet underneath.\n\n\
 Line weight is at least 0.75 pt; this edition draws at 1.25 pt.",
                 if line_only {
-                    let n = roster.cars.first().map(|c| c.plates).unwrap_or(1);
-                    if n <= 1 {
-                        format!("Each {noun} has one cartoon coloring page. Read the breed note in the contents, then color!")
+                    if !listing.how_to.trim().is_empty() {
+                        listing.how_to.trim().to_string()
                     } else {
-                        format!("Each {noun} has {n} cartoon coloring pages (different poses). Read the breed note in the contents, then color!")
+                        let n = roster.cars.first().map(|c| c.plates).unwrap_or(1);
+                        if n <= 1 {
+                            format!("Each {noun} has one cartoon coloring page. Read the breed note in the contents, then color!")
+                        } else {
+                            format!("Each {noun} has {n} cartoon coloring pages (different poses). Read the breed note in the contents, then color!")
+                        }
                     }
                 } else if one {
                     format!("Each {noun} opens with one color plate, then one black coloring page of that same subject.")
@@ -907,11 +943,15 @@ Line weight is at least 0.75 pt; this edition draws at 1.25 pt.",
         (
             format!("The {}", listing.noun_plural),
             if line_only {
-                format!(
-                    "{} subjects. Each {noun}: cartoon coloring page(s). {} pages to color.",
-                    capitalize(&number_word(roster.cars.len())),
-                    plate_count(roster)
-                )
+                if !listing.section_note.trim().is_empty() {
+                    listing.section_note.trim().to_string()
+                } else {
+                    format!(
+                        "{} subjects. Each {noun}: cartoon coloring page(s). {} pages to color.",
+                        capitalize(&number_word(roster.cars.len())),
+                        plate_count(roster)
+                    )
+                }
             } else {
                 format!(
                     "{} subjects. Each {noun}: one color plate + {}. {} coloring pages.",
@@ -1340,6 +1380,30 @@ mod tests {
                 .all(|c| (c as u32) <= 0xFF)
         );
         assert!(latin1("plates — original").contains("--"));
+    }
+
+    #[test]
+    fn line_only_how_to_and_section_can_be_overridden() {
+        let mut r = load_roster().unwrap();
+        r.line_only = true;
+        let l = Listing {
+            noun: "dinosaur".into(),
+            noun_plural: "dinosaurs".into(),
+            how_to: "Each dinosaur has 2 action scenes. Read when and where in the contents."
+                .into(),
+            section_note: "Forty dinosaurs. 80 pages to color.".into(),
+            ..Listing::default()
+        };
+        let front = front_pages(&r, &l);
+        let body = front
+            .iter()
+            .map(|(_, b)| b.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(body.contains("2 action scenes"));
+        assert!(body.contains("80 pages to color."));
+        assert!(!body.contains("cartoon"));
+        assert!(!body.contains("breed note"));
     }
 
     #[test]

@@ -61,8 +61,8 @@ html,body{margin:0;height:100%;background:var(--kdp-bg);color:#eee;font:13px/1.4
  </header>
  <div class="kdp-body">
   <aside class="kdp-side">
-   <h2>ERROR</h2>
-   <p class="meta" style="color:#aaa;margin:0 0 .8em">If your book has errors, it won't meet our quality standards. Fix them before uploading to KDP.</p>
+   <h2 id="issueHead">Checks</h2>
+   <p class="meta" id="issueLead" style="color:#aaa;margin:0 0 .8em">Local size and page checks before you upload to KDP.</p>
    <div id="issues"></div>
   </aside>
   <div class="kdp-main">
@@ -75,7 +75,7 @@ html,body{margin:0;height:100%;background:var(--kdp-bg);color:#eee;font:13px/1.4
    <div class="thumbs" id="thumbs"></div>
    <div class="kdp-bar">
     <button id="btnTwo" class="on" type="button">Two Page View</button>
-    <button id="btnThumb" type="button">Thumbnail view</button>
+    <button id="btnThumb" type="button">One Page</button>
     <label>Page Range
      <select id="range"><option value="cover">Cover</option></select>
     </label>
@@ -113,12 +113,24 @@ async function boot(){
   meta=await r.json();
   $('#bookTitle').textContent=meta.title;
   $('#bookBy').textContent='Paperback · '+meta.author+' · '+meta.pages+' pages · '+meta.paper;
+  const errs=(meta.issues||[]).filter(i=>i.error);
+  $('#issueHead').textContent=errs.length?'ERROR':'Checks';
+  $('#issueLead').textContent=errs.length
+    ?"If your book has errors, it won't meet our quality standards. Fix them before uploading to KDP."
+    :'Local size and page checks before you upload to KDP.';
   $('#issues').innerHTML=issueHtml(meta.issues||[]);
-  $('#approve').disabled=(meta.issues||[]).some(i=>i.error);
+  $('#approve').disabled=errs.length>0;
   const sel=$('#range');
   sel.innerHTML='<option value="cover">Cover</option>';
-  for(let i=1;i<=meta.pages;i++){
-    const o=document.createElement('option');o.value=String(i);o.textContent=i;sel.appendChild(o);
+  const choices=partial()?drawn():null;
+  if(choices){
+    for(const p of choices){
+      const o=document.createElement('option');o.value=String(p.n);o.textContent=p.n+' · '+(p.jpeg||'');sel.appendChild(o);
+    }
+  }else{
+    for(let i=1;i<=meta.pages;i++){
+      const o=document.createElement('option');o.value=String(i);o.textContent=i;sel.appendChild(o);
+    }
   }
   $('#pageOf').textContent='/ '+meta.pages;
   $('#stat').textContent='Opening files…';
@@ -177,7 +189,7 @@ async function plateFace(n, maxW, maxH){
   box.style.position='relative';
   box.style.overflow='hidden';
   box.style.flex='0 0 auto';
-  if(info&&info.jpeg){
+  if(info&&info.jpeg&&info.ready!==false){
     const img=document.createElement('img');
     img.src='/kdp/jpeg/'+info.jpeg;
     img.style.cssText='position:absolute;left:8%;top:6%;width:84%;height:86%;object-fit:contain';
@@ -300,6 +312,8 @@ function loadImg(src){
     im.src=src;
   });
 }
+function partial(){return meta&&!meta.has_interior;}
+function drawn(){return (meta.plates||[]).filter(p=>p.jpeg&&p.ready);}
 function paintGuides(){
   $('#guides').hidden=!$('#showGuides').checked;
 }
@@ -325,7 +339,7 @@ async function buildThumbs(){
           src=await renderPage(interiorPdf,+key,0.09);
         }else{
           const info=(meta.plates||[]).find(p=>p.n===+key);
-          if(info&&info.jpeg){
+          if(info&&info.jpeg&&info.ready){
             const im=new Image();
             await new Promise(r=>{im.onload=r;im.onerror=r;im.src='/kdp/jpeg/'+info.jpeg;});
             if(im.width){c.width=54;c.height=76;c.getContext('2d').drawImage(im,0,0,54,76);}
@@ -344,7 +358,11 @@ async function buildThumbs(){
     box.appendChild(t);io.observe(t);
   };
   add('Cover');
-  for(let i=1;i<=meta.pages;i++) add(String(i));
+  if(partial()){
+    for(const p of drawn()) add(String(p.n));
+  }else{
+    for(let i=1;i<=meta.pages;i++) add(String(i));
+  }
   markThumb();
 }
 function markThumb(){
@@ -362,13 +380,24 @@ $('#range').onchange=()=>{
 };
 $('#pageNo').onchange=()=>{mode='page';page=+$('#pageNo').value;show();};
 
+function stepList(){
+  if(!partial()) return null;
+  return drawn().map(p=>p.n);
+}
 function canPrev(){
   if(!meta) return false;
   if(mode==='cover') return false;
+  const list=stepList();
+  if(list) return true;
   return pageOf() > 1;
 }
 function canNext(){
   if(!meta) return false;
+  const list=stepList();
+  if(list){
+    if(mode==='cover') return list.length>0;
+    return list.some(n=>n>pageOf());
+  }
   if(mode==='cover') return true;
   const n=pageOf();
   if(two){
@@ -379,12 +408,29 @@ function canNext(){
 }
 function goPrev(){
   if(!canPrev()) return;
+  const list=stepList();
+  if(list){
+    const cur=pageOf();
+    const prev=list.filter(n=>n<cur).pop();
+    if(prev){mode='page';page=prev;$('#pageNo').value=page;}
+    else{mode='cover';page=0;}
+    show();
+    return;
+  }
   page=Math.max(1,pageOf()-(two?2:1));
   $('#pageNo').value=page;
   show();
 }
 function goNext(){
   if(!canNext()) return;
+  const list=stepList();
+  if(list){
+    const cur=mode==='cover'?0:pageOf();
+    const nxt=list.find(n=>n>cur);
+    if(!nxt) return;
+    mode='page';page=nxt;$('#pageNo').value=page;show();
+    return;
+  }
   if(mode==='cover'){mode='page';page=1;$('#pageNo').value=1;show();return;}
   page=Math.min(meta.pages,pageOf()+(two?2:1));
   $('#pageNo').value=page;

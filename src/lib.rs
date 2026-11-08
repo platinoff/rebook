@@ -12,6 +12,7 @@ pub mod coloring_artcheck;
 pub mod coloring_brief;
 pub mod coloring_draft;
 pub mod coloring_kdp;
+pub mod coloring_raster;
 pub mod coloring_svg;
 pub mod cover;
 pub mod coverdoc;
