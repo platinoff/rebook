@@ -90,12 +90,13 @@ pub fn discover_fonts() -> Result<FontPaths, String> {
         }
     }
     // Linux fallback family names.
-    for (r, b, i, bi) in [(
-        "/usr/share/fonts/liberation-serif/LiberationSerif-Regular.ttf",
-        "/usr/share/fonts/liberation-serif/LiberationSerif-Bold.ttf",
-        "/usr/share/fonts/liberation-serif/LiberationSerif-Italic.ttf",
-        "/usr/share/fonts/liberation-serif/LiberationSerif-BoldItalic.ttf",
-    )] {
+    {
+        let (r, b, i, bi) = (
+            "/usr/share/fonts/liberation-serif/LiberationSerif-Regular.ttf",
+            "/usr/share/fonts/liberation-serif/LiberationSerif-Bold.ttf",
+            "/usr/share/fonts/liberation-serif/LiberationSerif-Italic.ttf",
+            "/usr/share/fonts/liberation-serif/LiberationSerif-BoldItalic.ttf",
+        );
         if Path::new(r).exists() && usable(Path::new(r)) {
             return Ok(FontPaths {
                 regular: PathBuf::from(r),
